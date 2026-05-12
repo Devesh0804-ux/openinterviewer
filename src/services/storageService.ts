@@ -1,5 +1,5 @@
 // Storage Service - Client-side interface for interview storage
-// Calls API routes which interact with Vercel KV
+// Calls API routes which interact with the configured storage backend
 
 import { StoredInterview, StoredStudy } from '@/types';
 
@@ -21,14 +21,20 @@ export async function saveCompletedInterview(
         ...interview,
         completedAt: Date.now(),
         status: 'completed'
-      })
+      }),
+      cache: 'no-store'
     });
 
     if (!response.ok) {
       throw new Error(`API error: ${response.status}`);
     }
 
-    return await response.json();
+    const data = await response.json();
+
+    return {
+      success: data.success ?? true,
+      id: data.id || data.interviewId || ''
+    };
   } catch (error) {
     console.error('Error saving interview:', error);
     return { success: false, id: '' };
@@ -38,7 +44,9 @@ export async function saveCompletedInterview(
 // Get all interviews (researcher only)
 export async function getAllInterviews(): Promise<StoredInterview[]> {
   try {
-    const response = await fetch('/api/interviews');
+    const response = await fetch('/api/interviews', {
+      cache: 'no-store'
+    });
 
     if (!response.ok) {
       throw new Error(`API error: ${response.status}`);
@@ -55,7 +63,9 @@ export async function getAllInterviews(): Promise<StoredInterview[]> {
 // Get single interview by ID
 export async function getInterview(id: string): Promise<StoredInterview | null> {
   try {
-    const response = await fetch(`/api/interviews/${id}`);
+    const response = await fetch(`/api/interviews/${id}`, {
+      cache: 'no-store'
+    });
 
     if (!response.ok) {
       return null;
@@ -88,7 +98,9 @@ export async function exportAllInterviews(): Promise<Blob | null> {
 // Get interviews for a specific study
 export async function getStudyInterviews(studyId: string): Promise<StoredInterview[]> {
   try {
-    const response = await fetch(`/api/interviews?studyId=${encodeURIComponent(studyId)}`);
+    const response = await fetch(`/api/interviews?studyId=${encodeURIComponent(studyId)}`, {
+      cache: 'no-store'
+    });
 
     if (!response.ok) {
       throw new Error(`API error: ${response.status}`);

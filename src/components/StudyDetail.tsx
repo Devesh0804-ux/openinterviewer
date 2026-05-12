@@ -252,8 +252,8 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
   ];
 
   return (
-    <div className="min-h-screen bg-stone-900 p-8">
-      <div className="max-w-5xl mx-auto">
+    <div className="min-h-screen bg-stone-900 px-4 py-5 sm:p-6 lg:p-8">
+      <div className="w-full max-w-5xl mx-auto">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -268,14 +268,14 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
             Back to Studies
           </button>
 
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-stone-700 flex items-center justify-center">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex items-start gap-3 sm:gap-4 min-w-0">
+              <div className="w-12 h-12 rounded-xl bg-stone-700 flex items-center justify-center flex-shrink-0">
                 <BookOpen className="text-stone-300" size={24} />
               </div>
-              <div>
-                <h1 className="text-3xl font-bold text-white">{study.config.name}</h1>
-                <div className="flex items-center gap-3 mt-1 text-sm text-stone-400">
+              <div className="min-w-0">
+                <h1 className="text-2xl sm:text-3xl font-bold leading-tight text-white break-words">{study.config.name}</h1>
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-1 text-sm text-stone-400">
                   <span className="flex items-center gap-1">
                     <Users size={14} />
                     {study.interviewCount} interviews
@@ -299,12 +299,12 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
         </motion.div>
 
         {/* Tabs */}
-        <div className="flex gap-2 mb-6 border-b border-stone-700">
+        <div className="flex gap-2 mb-6 border-b border-stone-700 overflow-x-auto">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-3 flex items-center gap-2 text-sm font-medium border-b-2 transition-colors ${
+              className={`px-4 py-3 flex items-center gap-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'border-stone-400 text-white'
                   : 'border-transparent text-stone-500 hover:text-stone-400'
@@ -335,7 +335,7 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
               </div>
 
               {/* Stats Summary */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="bg-stone-800/50 rounded-xl border border-stone-700 p-4 text-center">
                   <div className="text-3xl font-bold text-white">{study.interviewCount}</div>
                   <div className="text-sm text-stone-400">Interviews</div>
@@ -352,7 +352,7 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
 
               {/* Aggregate Synthesis */}
               <div className="bg-stone-800/50 rounded-xl border border-stone-700 p-6">
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
                   <h3 className="font-semibold text-white flex items-center gap-2">
                     <BarChart3 size={16} className="text-stone-400" />
                     Aggregate Analysis
@@ -360,7 +360,7 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
                   <button
                     onClick={handleGenerateAggregateSynthesis}
                     disabled={isGeneratingAggregate || interviews.length < 2}
-                    className="px-4 py-2 text-sm bg-stone-700 hover:bg-stone-600 text-stone-300 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full sm:w-auto px-4 py-2 text-sm bg-stone-700 hover:bg-stone-600 text-stone-300 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isGeneratingAggregate ? (
                       <Loader2 size={14} className="animate-spin" />
@@ -400,7 +400,7 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
                       <button
                         onClick={handleGenerateFollowup}
                         disabled={isGeneratingFollowup}
-                        className="px-4 py-2 text-sm bg-stone-600 hover:bg-stone-500 text-white rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full sm:w-auto px-4 py-2 text-sm bg-stone-600 hover:bg-stone-500 text-white rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {isGeneratingFollowup ? (
                           <Loader2 size={14} className="animate-spin" />
@@ -440,13 +440,13 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.05 }}
-                    className="bg-stone-800/50 rounded-xl border border-stone-700 p-6 hover:border-stone-600 transition-colors cursor-pointer"
+                    className="bg-stone-800/50 rounded-xl border border-stone-700 p-4 sm:p-6 hover:border-stone-600 transition-colors cursor-pointer"
                     onClick={() => router.push(`/dashboard/interview/${interview.id}`)}
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
                         {/* Participant info */}
-                        {interview.participantProfile && interview.participantProfile.fields.length > 0 && (
+                        {Array.isArray(interview.participantProfile?.fields) && interview.participantProfile.fields.length > 0 && (
                           <div className="text-sm text-stone-300 mb-3">
                             {interview.participantProfile.fields
                               .filter(f => f.status === 'extracted' && f.value)
@@ -465,14 +465,14 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
                         )}
 
                         {/* Stats */}
-                        <div className="flex items-center gap-4 text-xs text-stone-500">
+                        <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs text-stone-500">
                           <div className="flex items-center gap-1">
                             <Clock size={12} />
                             {formatDuration(interview.createdAt, interview.completedAt)}
                           </div>
                           <div className="flex items-center gap-1">
                             <MessageSquare size={12} />
-                            {interview.transcript.length} messages
+                            {interview.history?.length ?? 0} messages
                           </div>
                           <div>
                             {formatDate(interview.createdAt)}
@@ -568,8 +568,8 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
                   Link Management
                 </h3>
 
-                <div className="flex items-center justify-between p-4 bg-stone-900/50 rounded-xl">
-                  <div>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between p-4 bg-stone-900/50 rounded-xl">
+                  <div className="min-w-0">
                     <div className="font-medium text-stone-200">Participant Access</div>
                     <p className="text-sm text-stone-400">
                       {(study.config.linksEnabled ?? true)
@@ -580,7 +580,7 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
                   <button
                     onClick={handleToggleLinksEnabled}
                     disabled={isTogglingLinks}
-                    className={`w-14 h-7 rounded-full transition-colors flex items-center px-1 ${
+                    className={`w-14 h-7 rounded-full transition-colors flex items-center px-1 flex-shrink-0 ${
                       (study.config.linksEnabled ?? true)
                         ? 'bg-green-600'
                         : 'bg-stone-600'
@@ -618,7 +618,7 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
                   <button
                     onClick={handleGenerateLink}
                     disabled={generatingLink || !(study.config.linksEnabled ?? true)}
-                    className="px-4 py-2 bg-stone-600 hover:bg-stone-500 text-white rounded-lg disabled:opacity-50 flex items-center gap-2"
+                    className="w-full sm:w-auto px-4 py-2 bg-stone-600 hover:bg-stone-500 text-white rounded-lg disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {generatingLink ? <Loader2 size={16} className="animate-spin" /> : <LinkIcon size={16} />}
                     Generate New Link
@@ -626,16 +626,16 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
 
                   {/* Link Display (when generated) */}
                   {participantLink && (
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                       <input
                         type="text"
                         value={participantLink}
                         readOnly
-                        className="flex-1 bg-stone-900 border border-stone-600 rounded-lg px-3 py-2 text-stone-300 text-sm font-mono"
+                        className="w-full min-w-0 sm:flex-1 bg-stone-900 border border-stone-600 rounded-lg px-3 py-2 text-stone-300 text-sm font-mono"
                       />
                       <button
                         onClick={handleCopyLink}
-                        className="px-3 py-2 bg-stone-700 hover:bg-stone-600 text-stone-300 rounded-lg flex items-center gap-1"
+                        className="px-3 py-2 bg-stone-700 hover:bg-stone-600 text-stone-300 rounded-lg flex items-center justify-center gap-1"
                       >
                         {copied ? <Check size={16} className="text-green-400" /> : <Copy size={16} />}
                         {copied ? 'Copied!' : 'Copy'}

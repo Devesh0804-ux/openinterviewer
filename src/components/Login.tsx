@@ -40,13 +40,13 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-stone-900 flex items-center justify-center p-8">
+    <div className="min-h-screen bg-stone-900 flex items-center justify-center px-4 py-5 sm:p-8">
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         className="max-w-sm w-full"
       >
-        <div className="bg-stone-800/50 rounded-xl border border-stone-700 p-8">
+        <div className="bg-stone-800/50 rounded-xl border border-stone-700 p-4 sm:p-8">
           <div className="text-center mb-6">
             <div className="w-12 h-12 rounded-full bg-stone-700 flex items-center justify-center mx-auto mb-4">
               <Lock size={24} className="text-stone-300" />

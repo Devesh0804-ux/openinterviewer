@@ -36,11 +36,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: auth.error }, { status: 401 });
     }
 
-    // Check KV availability
+    // Check storage availability
     const kvAvailable = await isKVAvailable();
     if (!kvAvailable) {
       return NextResponse.json(
-        { error: 'Storage not configured. Connect Vercel KV to enable this feature.' },
+        { error: 'Storage not configured. Set MONGODB_URI to enable this feature.' },
         { status: 503 }
       );
     }
@@ -67,6 +67,7 @@ export async function POST(request: Request) {
 
     // Fetch all interviews for this study
     const interviews = await getStudyInterviews(studyId);
+
     if (interviews.length < 2) {
       return NextResponse.json(
         { error: 'Need at least 2 interviews to generate aggregate synthesis' },
@@ -76,8 +77,10 @@ export async function POST(request: Request) {
 
     // Extract synthesis results from interviews
     const syntheses: SynthesisResult[] = interviews
-      .filter(interview => interview.synthesis)
-      .map(interview => interview.synthesis!);
+      .filter((i: any) => i.synthesis)
+      .map((i: any) => i.synthesis);
+
+
 
     if (syntheses.length < 2) {
       return NextResponse.json(

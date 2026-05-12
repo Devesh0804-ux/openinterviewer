@@ -3,7 +3,9 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
+import Link from "next/link";
 import { StoredInterview, StoredStudy } from '@/types';
+import { useStore } from '@/store';
 import { getAllInterviews, exportAllInterviews, getStudyInterviews, getAllStudies } from '@/services/storageService';
 import {
   Loader2,
@@ -28,6 +30,75 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [warning, setWarning] = useState<string | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+  const [participantEmail, setParticipantEmail] = useState('');
+  const { viewMode } = useStore();
+  const loadedStudies = React.useRef(false);
+  const loadedInterviews = React.useRef(false);
+
+  const generateLink = async () => {
+
+    if (!selectedStudyId) {
+      alert("Please select a study first.");
+      return;
+    }
+
+    // Call your existing token generation API
+    const res = await fetch('/api/participant-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studyId: selectedStudyId })
+    });
+
+    if (!res.ok) {
+      const error = await res.json();
+      console.error(error);
+      throw Error("Failed to generate token");
+    }
+
+    const data = await res.json();
+    const fullLink = `${window.location.origin}/p/${data.token}`;
+    setLink(fullLink);
+  };
+
+  const handleSendEmail = async () => {
+
+    if (!participantEmail || !link) {
+      alert("Enter participant email first");
+      return;
+    }
+
+    const emailList = participantEmail
+      .split(",")
+      .map((e) => e.trim())
+      .filter(Boolean);
+
+    try {
+
+      const res = await fetch("/api/send-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          emails: emailList,
+          link: link
+        })
+      });
+
+      if (res.ok) {
+        alert("Email sent successfully!");
+        setParticipantEmail("");
+      } else {
+        alert("Failed to send email");
+      }
+
+    } catch (error) {
+      console.error(error);
+      alert("Error sending email");
+    }
+  };
+
 
   // Load studies on mount
   useEffect(() => {
@@ -39,6 +110,20 @@ const Dashboard: React.FC = () => {
     loadInterviews(selectedStudyId);
   }, [selectedStudyId]);
 
+  useEffect(() => {
+
+    const handleNewInterview = () => {
+      loadInterviews(selectedStudyId);
+    };
+
+    window.addEventListener("interviewCompleted", handleNewInterview);
+
+    return () => {
+      window.removeEventListener("interviewCompleted", handleNewInterview);
+    };
+
+  }, [selectedStudyId]);
+
   const loadStudies = async () => {
     try {
       const { studies: data } = await getAllStudies();
@@ -48,17 +133,20 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const loadInterviews = async (studyId: string | null) => {
-    setLoading(true);
+  const loadInterviews = async (studyId: string | null, showLoader = true) => {
+    if (loadedInterviews.current && !studyId) return;
+    if (showLoader) setLoading(true);
+
     try {
       const data = studyId
         ? await getStudyInterviews(studyId)
         : await getAllInterviews();
+
       setInterviews(data);
     } catch (error) {
       console.error('Error loading interviews:', error);
     } finally {
-      setLoading(false);
+      if (showLoader) setLoading(false);
     }
   };
 
@@ -94,12 +182,32 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const formatDuration = (start: number, end: number) => {
-    const minutes = Math.round((end - start) / 1000 / 60);
+  const toTimestamp = (value: unknown): number | null => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (value instanceof Date) {
+      const timestamp = value.getTime();
+      return Number.isFinite(timestamp) ? timestamp : null;
+    }
+    if (typeof value === 'string') {
+      const timestamp = new Date(value).getTime();
+      return Number.isFinite(timestamp) ? timestamp : null;
+    }
+    return null;
+  };
+
+  const formatDuration = (start: unknown, end: unknown) => {
+    const startTime = toTimestamp(start);
+    const endTime = toTimestamp(end);
+    if (!startTime || !endTime || endTime < startTime) return '0 min';
+
+    const minutes = Math.round((endTime - startTime) / 1000 / 60);
     return `${minutes} min`;
   };
 
-  const formatDate = (timestamp: number) => {
+  const formatDate = (value: unknown) => {
+    const timestamp = toTimestamp(value);
+    if (!timestamp) return 'Unknown date';
+
     return new Date(timestamp).toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
@@ -109,40 +217,64 @@ const Dashboard: React.FC = () => {
     });
   };
 
+  const getProfileSummary = (interview: StoredInterview) => {
+    const fields = Array.isArray(interview.participantProfile?.fields)
+      ? interview.participantProfile.fields
+      : [];
+
+    return fields
+      .filter(f => f.status === 'extracted' && f.value)
+      .slice(0, 3)
+      .map(f => f.value)
+      .join(' • ');
+  };
+
+  const getMessageCount = (interview: StoredInterview) => {
+    if (Array.isArray(interview.messages)) return interview.messages.length;
+    if (Array.isArray(interview.transcript)) return interview.transcript.length;
+    if (Array.isArray(interview.history)) return interview.history.length;
+    return 0;
+  };
+
+  const getStatus = (interview: StoredInterview) => (
+    interview.status || (interview.completedAt ? 'completed' : 'in_progress')
+  );
+
   return (
-    <div className="min-h-screen bg-stone-900 p-8">
-      <div className="max-w-5xl mx-auto">
+    <div className="min-h-screen bg-stone-900 px-4 py-5 sm:p-6 lg:p-8">
+      <div className="w-full max-w-5xl mx-auto">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-stone-700 flex items-center justify-center">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-stone-700 flex items-center justify-center flex-shrink-0">
                 <FolderOpen className="text-stone-300" size={20} />
               </div>
-              <div>
-                <h1 className="text-3xl font-bold text-white">Interview Dashboard</h1>
+              <div className="min-w-0">
+                <h1 className="text-2xl sm:text-3xl font-bold leading-tight text-white break-words">Interview Dashboard</h1>
                 <p className="text-stone-400">
                   {interviews.length} interview{interviews.length !== 1 ? 's' : ''} collected
                 </p>
               </div>
             </div>
 
-            <div className="flex gap-3">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap lg:justify-end">
               <button
                 onClick={() => router.push('/studies')}
-                className="px-4 py-2 text-sm bg-stone-700 hover:bg-stone-600 text-stone-300 rounded-xl transition-colors flex items-center gap-2"
+                className="px-3 sm:px-4 py-2 text-sm bg-stone-700 hover:bg-stone-600 text-stone-300 rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 <BookOpen size={16} />
                 My Studies
               </button>
               <button
                 onClick={() => router.push('/setup')}
-                className="px-4 py-2 text-sm bg-stone-700 hover:bg-stone-600 text-stone-300 rounded-xl transition-colors flex items-center gap-2"
+                className="px-3 sm:px-4 py-2 text-sm bg-stone-700 hover:bg-stone-600 text-stone-300 rounded-xl transition-colors flex items-center justify-center gap-2"
               >
+
                 <ArrowLeft size={16} />
                 Back to Setup
               </button>
@@ -150,7 +282,7 @@ const Dashboard: React.FC = () => {
                 <button
                   onClick={handleExportAll}
                   disabled={exporting}
-                  className="px-4 py-2 text-sm bg-stone-600 hover:bg-stone-500 text-white rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-3 sm:px-4 py-2 text-sm bg-stone-600 hover:bg-stone-500 text-white rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {exporting ? (
                     <Loader2 size={16} className="animate-spin" />
@@ -162,12 +294,63 @@ const Dashboard: React.FC = () => {
               )}
               <button
                 onClick={handleLogout}
-                className="px-4 py-2 text-sm border border-stone-600 text-stone-400 hover:bg-stone-700 rounded-xl transition-colors flex items-center gap-2"
+                className="px-3 sm:px-4 py-2 text-sm border border-stone-600 text-stone-400 hover:bg-stone-700 rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 <LogOut size={16} />
                 Logout
               </button>
             </div>
+          </div>
+        </motion.div>
+
+        {/* Generate Participant Link */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="mb-8 bg-stone-800/50 border border-stone-700 rounded-xl p-4 sm:p-6"
+        >
+          <h2 className="text-white font-semibold mb-4">Invite Participant</h2>
+
+          <div className="grid grid-cols-1 gap-3 sm:flex sm:flex-wrap">
+            <button
+              onClick={generateLink}
+              disabled={!selectedStudyId}
+              className="px-4 py-2 bg-stone-600 hover:bg-stone-500 text-white rounded-xl disabled:opacity-50"
+            >
+              Generate Interview Link
+            </button>
+
+            {link && (
+              <>
+                <input
+                  value={link}
+                  readOnly
+                  className="w-full min-w-0 sm:flex-1 px-3 py-2 bg-stone-900 border border-stone-600 text-stone-300 rounded-xl"
+                />
+
+                <button
+                  onClick={() => navigator.clipboard.writeText(link)}
+                  className="px-4 py-2 bg-stone-700 text-stone-300 rounded-xl"
+                >
+                  Copy
+                </button>
+
+                <input
+                  type="email"
+                  placeholder="Participant email"
+                  value={participantEmail}
+                  onChange={(e) => setParticipantEmail(e.target.value)}
+                  className="w-full sm:w-auto px-3 py-2 bg-stone-900 border border-stone-600 text-stone-300 rounded-xl"
+                />
+
+                <button
+                  onClick={handleSendEmail}
+                  className="px-4 py-2 bg-stone-600 text-white rounded-xl"
+                >
+                  Send via Email
+                </button>
+              </>
+            )}
           </div>
         </motion.div>
 
@@ -187,13 +370,13 @@ const Dashboard: React.FC = () => {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="mb-6 flex items-center gap-3"
+            className="mb-6 flex flex-wrap items-center gap-3"
           >
             <Filter size={16} className="text-stone-500" />
             <select
               value={selectedStudyId || ''}
               onChange={(e) => setSelectedStudyId(e.target.value || null)}
-              className="px-4 py-2 bg-stone-800 border border-stone-700 rounded-xl text-stone-300 focus:outline-none focus:ring-2 focus:ring-stone-500"
+              className="w-full sm:w-auto min-w-0 px-4 py-2 bg-stone-800 border border-stone-700 rounded-xl text-stone-300 focus:outline-none focus:ring-2 focus:ring-stone-500"
             >
               <option value="">All Studies</option>
               {studies.map((study) => (
@@ -222,7 +405,7 @@ const Dashboard: React.FC = () => {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-stone-800/50 rounded-2xl border border-stone-700 p-12 text-center"
+            className="bg-stone-800/50 rounded-2xl border border-stone-700 p-6 sm:p-12 text-center"
           >
             <div className="w-16 h-16 rounded-full bg-stone-800 flex items-center justify-center mx-auto mb-4">
               <FileText size={32} className="text-stone-500" />
@@ -231,45 +414,56 @@ const Dashboard: React.FC = () => {
             <p className="text-stone-400 mb-6">
               Completed interviews will appear here. Share participant links to start collecting data.
             </p>
-            <button
-              onClick={() => router.push('/setup')}
-              className="px-6 py-3 bg-stone-600 hover:bg-stone-500 text-white rounded-xl transition-colors"
-            >
-              Create Study Link
-            </button>
+            <div className="flex flex-col items-center gap-4">
+              <button
+                onClick={generateLink}
+                className="px-6 py-3 bg-stone-600 hover:bg-stone-500 text-white rounded-xl transition-colors"
+              >
+                Generate Participant Link
+              </button>
+
+              {link && (
+                <div className="w-full max-w-lg bg-stone-800 border border-stone-700 rounded-xl p-4 text-sm text-stone-300 break-all">
+                  {link}
+                  <button
+                    onClick={() => navigator.clipboard.writeText(link)}
+                    className="mt-3 px-4 py-2 bg-stone-700 hover:bg-stone-600 text-white rounded-lg"
+                  >
+                    Copy Link
+                  </button>
+                </div>
+              )}
+            </div>
           </motion.div>
         ) : (
           <div className="space-y-4">
             {interviews.map((interview, index) => (
               <motion.div
-                key={interview.id}
+                key={interview.id || interview._id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
-                className="bg-stone-800/50 rounded-xl border border-stone-700 p-6 hover:border-stone-600 transition-colors cursor-pointer"
-                onClick={() => handleViewInterview(interview.id)}
+                className="bg-stone-800/50 rounded-xl border border-stone-700 p-4 sm:p-6 hover:border-stone-600 transition-colors cursor-pointer"
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="font-semibold text-white">{interview.studyName}</h3>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-2">
+                      <h3 className="font-semibold text-white break-words">
+                        {interview.participantName || "Unknown Participant"}
+                      </h3>
                       <span className={`px-2 py-0.5 text-xs rounded-full ${
-                        interview.status === 'completed'
+                        getStatus(interview) === 'completed'
                           ? 'bg-stone-700 text-stone-300'
                           : 'bg-stone-600 text-stone-200'
                       }`}>
-                        {interview.status}
+                        {getStatus(interview).replace('_', ' ')}
                       </span>
                     </div>
 
                     {/* Participant info */}
-                    {interview.participantProfile && interview.participantProfile.fields.length > 0 && (
+                    {getProfileSummary(interview) && (
                       <div className="text-sm text-stone-400 mb-3">
-                        {interview.participantProfile.fields
-                          .filter(f => f.status === 'extracted' && f.value)
-                          .slice(0, 3)
-                          .map(f => f.value)
-                          .join(' • ')}
+                        {getProfileSummary(interview)}
                       </div>
                     )}
 
@@ -282,30 +476,27 @@ const Dashboard: React.FC = () => {
                     )}
 
                     {/* Stats */}
-                    <div className="flex items-center gap-4 text-xs text-stone-500">
+                    <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs text-stone-500">
                       <div className="flex items-center gap-1">
                         <Clock size={12} />
                         {formatDuration(interview.createdAt, interview.completedAt)}
                       </div>
                       <div className="flex items-center gap-1">
                         <MessageSquare size={12} />
-                        {interview.transcript.length} messages
+                        {getMessageCount(interview)} messages
                       </div>
                       <div>
                         {formatDate(interview.createdAt)}
                       </div>
                     </div>
                   </div>
-
-                  <button
+                  <Link
+                    href={`/dashboard/interview/${interview.id || interview._id}`}
+                    onClick={(e) => e.stopPropagation()}
                     className="p-2 text-stone-400 hover:text-stone-300 transition-colors"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleViewInterview(interview.id);
-                    }}
                   >
                     <Eye size={20} />
-                  </button>
+                  </Link>
                 </div>
               </motion.div>
             ))}

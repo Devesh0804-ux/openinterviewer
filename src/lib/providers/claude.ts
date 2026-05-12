@@ -74,7 +74,7 @@ export class ClaudeProvider implements AIProvider {
   ): Promise<AIInterviewResponse> {
     const systemPrompt = buildInterviewSystemPrompt(
       studyConfig,
-      participantProfile,
+      participantProfile || {} as ParticipantProfile,
       questionProgress,
       currentContext
     );
@@ -180,6 +180,25 @@ export class ClaudeProvider implements AIProvider {
     } catch (error) {
       console.error('Claude greeting error:', error);
       return getDefaultGreeting(studyConfig);
+    }
+  }
+
+  async generateRawResponse(extractionPrompt: string): Promise<unknown> {
+    try {
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 2048,
+        messages: [{ role: 'user', content: extractionPrompt }]
+      });
+
+      const textBlock = response.content.find(block => block.type === 'text');
+      if (textBlock && textBlock.type === 'text') {
+        return cleanJSON(textBlock.text);
+      }
+      return null;
+    } catch (error) {
+      console.error('Claude raw response error:', error);
+      return null;
     }
   }
 

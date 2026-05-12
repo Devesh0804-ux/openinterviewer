@@ -1,5 +1,4 @@
-// GET /api/interviews/[id] - Get single interview
-// Protected: Requires authenticated session
+// GET /api/interviews/[id]
 
 export const dynamic = 'force-dynamic';
 
@@ -10,10 +9,9 @@ import { verifySessionToken, SESSION_COOKIE_NAME } from '@/lib/auth';
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   try {
-    // Check authentication with token validation
     const cookieStore = await cookies();
     const authCookie = cookieStore.get(SESSION_COOKIE_NAME);
 
@@ -24,7 +22,6 @@ export async function GET(
       );
     }
 
-    // Verify the session token is valid
     const isValid = await verifySessionToken(authCookie.value);
     if (!isValid) {
       return NextResponse.json(
@@ -33,7 +30,7 @@ export async function GET(
       );
     }
 
-    const { id } = await params;
+    const { id } = params;
 
     if (!id) {
       return NextResponse.json(
@@ -42,11 +39,11 @@ export async function GET(
       );
     }
 
-    const interview = await getInterview(id);
+    const interview = await getInterview(params.id);
 
     if (!interview) {
       return NextResponse.json(
-        { error: 'Interview not found' },
+        { error: 'Not found' },
         { status: 404 }
       );
     }

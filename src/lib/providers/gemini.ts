@@ -48,6 +48,9 @@ export class GeminiProvider implements AIProvider {
       process.env.AI_MODEL ||
       DEFAULT_GEMINI_MODEL;
   }
+  generateRawResponse(extractionPrompt: string): unknown {
+    throw new Error('Method not implemented.');
+  }
 
   // For interview responses (2.5 models) - disable thinking for speed (unless explicitly enabled)
   private getInterviewThinkingConfig(enableReasoning?: boolean) {
@@ -79,35 +82,38 @@ export class GeminiProvider implements AIProvider {
   ): Promise<AIInterviewResponse> {
     const systemInstruction = buildInterviewSystemPrompt(
       studyConfig,
-      participantProfile,
+      participantProfile || {} as ParticipantProfile,
       questionProgress,
       currentContext
     );
 
     try {
-      const chat = this.ai.chats.create({
+      const contents = [
+        {
+          role: 'user',
+          parts: [{ text: systemInstruction }]
+        },
+        ...history.slice(-10).map(h => ({
+          role: h.role === 'ai' ? 'model' : 'user',
+          parts: [{ text: h.content }]
+        }))
+      ];
+
+      const response = await this.ai.models.generateContent({
         model: this.model,
+        contents,
         config: {
-          systemInstruction,
           ...this.getInterviewThinkingConfig(studyConfig.enableReasoning),
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              message: {
-                type: Type.STRING,
-                description: 'Your response to the participant'
-              },
-              questionAddressed: {
-                type: Type.NUMBER,
-                nullable: true,
-                description: '0-based index of core question substantially addressed in this exchange, or null'
-              },
+              message: { type: Type.STRING },
+              questionAddressed: { type: Type.NUMBER, nullable: true },
               phaseTransition: {
                 type: Type.STRING,
                 nullable: true,
-                enum: ['background', 'core-questions', 'exploration', 'feedback', 'wrap-up'],
-                description: 'If interview should move to a new phase, specify it'
+                enum: ['background', 'core-questions', 'exploration', 'feedback', 'wrap-up']
               },
               profileUpdates: {
                 type: Type.ARRAY,
@@ -122,29 +128,19 @@ export class GeminiProvider implements AIProvider {
                     }
                   },
                   required: ['fieldId', 'status']
-                },
-                description: 'Profile fields extracted or updated from user response'
+                }
               },
-              shouldConclude: {
-                type: Type.BOOLEAN,
-                description: 'True if interview should end (after wrap-up message)'
-              }
+              shouldConclude: { type: Type.BOOLEAN }
             },
             required: ['message', 'profileUpdates', 'shouldConclude']
           }
-        },
-        history: history.slice(-10).map(h => ({
-          role: h.role === 'ai' ? 'model' : 'user',
-          parts: [{ text: h.content }]
-        }))
+        }
       });
 
-      const lastUserMessage = history.filter(m => m.role === 'user').pop();
-      const result = await chat.sendMessage({
-        message: lastUserMessage?.content || 'Please continue the interview.'
-      });
+      const parsed = JSON.parse(cleanJSON(response.text || '{}'));
 
-      const parsed = JSON.parse(cleanJSON(result.text || '{}'));
+      console.log('AI RESPONSE:', parsed); // 🔥 Add this
+
       return {
         message: parsed.message || "That's interesting. Could you tell me more?",
         questionAddressed: parsed.questionAddressed ?? null,
@@ -152,10 +148,12 @@ export class GeminiProvider implements AIProvider {
         profileUpdates: parsed.profileUpdates || [],
         shouldConclude: parsed.shouldConclude || false
       };
+
     } catch (error) {
       console.error('Gemini interview response error:', error);
       return defaultInterviewResponse;
     }
+
   }
 
   async getInterviewGreeting(studyConfig: StudyConfig): Promise<string> {

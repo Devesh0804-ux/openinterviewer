@@ -25,10 +25,12 @@ const getExpirationTime = (option?: LinkExpirationOption): string | null => {
 // Get signing secret from environment
 // Uses dedicated PARTICIPANT_TOKEN_SECRET if available, falls back to ADMIN_PASSWORD
 const getSecret = () => {
-  const secret = process.env.PARTICIPANT_TOKEN_SECRET || process.env.ADMIN_PASSWORD;
+  const secret = process.env.PARTICIPANT_TOKEN_SECRET;
+
   if (!secret) {
-    throw new Error('Token signing secret not configured');
+    throw new Error('PARTICIPANT_TOKEN_SECRET must be configured');
   }
+
   return new TextEncoder().encode(secret);
 };
 
@@ -38,10 +40,19 @@ export async function POST(request: Request) {
     const cookieStore = await cookies();
     const sessionToken = cookieStore.get(SESSION_COOKIE_NAME)?.value;
 
-    if (!sessionToken || !(await verifySessionToken(sessionToken))) {
+    if (!sessionToken) {
       return NextResponse.json(
-        { error: 'Admin authentication required to generate participant links' },
+        { error: 'Authentication required' },
         { status: 401 }
+      );
+    }
+
+    const sessionValid = await verifySessionToken(sessionToken);
+
+    if (!sessionValid) {
+      return NextResponse.json(
+        { error: 'Admin privileges required to generate participant links' },
+        { status: 403 }
       );
     }
 

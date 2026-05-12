@@ -1,19 +1,237 @@
-// Vercel KV (Redis) Client Setup
-// Auto-provisioned during Vercel deployment
+// Shared persistence API.
+// The app historically imported this module as "kv"; it now prefers MongoDB
+// and uses local JSON only as a development fallback when MongoDB is unavailable.
 
-import { kv } from '@vercel/kv';
+import fs from 'fs/promises';
+import path from 'path';
+import { Types } from 'mongoose';
+import { connectDB, isMongoConfigured } from '@/lib/mongodb';
+import Interview from '@/models/Interview';
+import ParticipantToken from '@/models/ParticipantToken';
+import Study from '@/models/Study';
 import { StoredInterview, StoredStudy } from '@/types';
 
-// Key prefixes for organizing data
-const INTERVIEW_PREFIX = 'interview:';
-const STUDY_INDEX_PREFIX = 'study-interviews:';
-const STUDY_PREFIX = 'study:';
-const ALL_STUDIES_KEY = 'all-studies';
+type LocalStore = {
+  interviews: Record<string, StoredInterview>;
+  studies: Record<string, StoredStudy>;
+  studyInterviews: Record<string, string[]>;
+  participantTokens: Record<string, { studyId: string; studyConfig: StoredStudy['config']; expiresAt: number }>;
+};
+
+const LOCAL_STORE_PATH = process.env.LOCAL_STORAGE_PATH || path.join(process.cwd(), '.data', 'local-store.json');
+
+let mongoAvailableCache: boolean | null = null;
+let warnedAboutLocalFallback = false;
+let lastMongoError: unknown = null;
+
+function isLocalFileStorageEnabled() {
+  return process.env.LOCAL_FILE_STORAGE === 'true' ||
+    (process.env.NODE_ENV !== 'production' && process.env.LOCAL_FILE_STORAGE !== 'false');
+}
+
+function shouldLogStorageFallback() {
+  return process.env.DEBUG_STORAGE === 'true' || process.env.LOCAL_FILE_STORAGE === 'true';
+}
+
+function createEmptyStore(): LocalStore {
+  return {
+    interviews: {},
+    studies: {},
+    studyInterviews: {},
+    participantTokens: {}
+  };
+}
+
+function stripMongoFields<T extends Record<string, any>>(document: T) {
+  const { __v, ...clean } = document;
+  return clean;
+}
+
+function toTimestamp(value: any, fallback = Date.now()): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (value instanceof Date) {
+    const timestamp = value.getTime();
+    return Number.isFinite(timestamp) ? timestamp : fallback;
+  }
+  if (typeof value === 'string') {
+    const timestamp = new Date(value).getTime();
+    return Number.isFinite(timestamp) ? timestamp : fallback;
+  }
+  if (value && typeof value === 'object' && '$date' in value) {
+    return toTimestamp(value.$date, fallback);
+  }
+  return fallback;
+}
+
+function normalizeArray<T = any>(value: any): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function getProfileValue(profile: any, keys: string[]) {
+  if (!profile || typeof profile !== 'object') return null;
+
+  for (const key of keys) {
+    const value = profile[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+
+  const fields = normalizeArray(profile.fields);
+  const match = fields.find((field: any) => {
+    const fieldId = `${field?.fieldId || field?.id || field?.label || ''}`.toLowerCase();
+    return keys.some(key => fieldId.includes(key.toLowerCase())) && field?.value;
+  });
+
+  return typeof match?.value === 'string' ? match.value.trim() : null;
+}
+
+function normalizeParticipantProfile(profile: any, documentId: string, timestamp: number) {
+  const fields = normalizeArray(profile?.fields);
+
+  return {
+    id: profile?.id || `profile-${documentId}`,
+    fields,
+    rawContext: typeof profile?.rawContext === 'string' ? profile.rawContext : '',
+    timestamp: toTimestamp(profile?.timestamp, timestamp)
+  };
+}
+
+function interviewLookupQuery(id: string) {
+  const conditions: any[] = [{ id }];
+
+  if (Types.ObjectId.isValid(id)) {
+    conditions.push({ _id: new Types.ObjectId(id) });
+  }
+
+  return { $or: conditions };
+}
+
+function toStoredInterview(document: any): StoredInterview {
+  const clean = stripMongoFields(document);
+  const mongoId = clean._id?.toString();
+  const id = clean.id || mongoId;
+  const createdAt = toTimestamp(clean.createdAt || clean.completedAt || clean.updatedAt);
+  const completedAt = toTimestamp(clean.completedAt || clean.updatedAt || clean.createdAt, createdAt);
+  const transcript = normalizeArray(clean.transcript).length
+    ? normalizeArray(clean.transcript)
+    : normalizeArray(clean.messages).length
+      ? normalizeArray(clean.messages)
+      : normalizeArray(clean.history);
+  const messages = normalizeArray(clean.messages).length ? normalizeArray(clean.messages) : transcript;
+  const history = normalizeArray(clean.history).length ? normalizeArray(clean.history) : messages;
+  const participantProfile = normalizeParticipantProfile(clean.participantProfile, id, createdAt);
+  const participantName =
+    clean.participantName ||
+    getProfileValue(clean.participantProfile, ['participantName', 'name', 'fullName', 'participant']) ||
+    'Unknown Participant';
+
+  return {
+    ...clean,
+    _id: mongoId,
+    id,
+    studyId: clean.studyId || 'unknown-study',
+    studyName: clean.studyName || `Study ${String(clean.studyId || 'unknown').slice(0, 8)}`,
+    participantName,
+    participantProfile,
+    transcript,
+    messages,
+    history,
+    synthesis: clean.synthesis || null,
+    behaviorData: clean.behaviorData || {
+      timePerTopic: {},
+      messagesPerTopic: {},
+      topicsExplored: [],
+      contradictions: []
+    },
+    createdAt,
+    completedAt,
+    status: clean.status === 'in-progress'
+      ? 'in_progress'
+      : clean.status || (clean.completedAt ? 'completed' : 'in_progress')
+  } as StoredInterview;
+}
+
+function toStoredStudy(document: any): StoredStudy {
+  const clean = stripMongoFields(document);
+  return {
+    ...clean,
+    id: clean.id || clean._id?.toString()
+  } as StoredStudy;
+}
+
+async function shouldUseMongo(): Promise<boolean> {
+  if (!isMongoConfigured()) return false;
+  if (mongoAvailableCache !== null) return mongoAvailableCache;
+
+  try {
+    await connectDB();
+    mongoAvailableCache = true;
+    lastMongoError = null;
+    return true;
+  } catch (error) {
+    mongoAvailableCache = false;
+    lastMongoError = error;
+
+    if (isLocalFileStorageEnabled() && !warnedAboutLocalFallback && shouldLogStorageFallback()) {
+      console.warn(
+        `MongoDB is unavailable; using local file storage at ${LOCAL_STORE_PATH}. ` +
+        'Set LOCAL_FILE_STORAGE=false to disable this development fallback.'
+      );
+      warnedAboutLocalFallback = true;
+    } else if (!isLocalFileStorageEnabled()) {
+      console.error('MongoDB is unavailable:', error);
+    }
+
+    return false;
+  }
+}
+
+async function readLocalStore(): Promise<LocalStore> {
+  if (!isLocalFileStorageEnabled()) {
+    throw new Error('Local file storage fallback is disabled');
+  }
+
+  try {
+    const raw = await fs.readFile(LOCAL_STORE_PATH, 'utf8');
+    const parsed = JSON.parse(raw) as Partial<LocalStore>;
+    return {
+      ...createEmptyStore(),
+      ...parsed,
+      interviews: parsed.interviews || {},
+      studies: parsed.studies || {},
+      studyInterviews: parsed.studyInterviews || {},
+      participantTokens: parsed.participantTokens || {}
+    };
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') {
+      return createEmptyStore();
+    }
+
+    throw error;
+  }
+}
+
+async function writeLocalStore(store: LocalStore) {
+  await fs.mkdir(path.dirname(LOCAL_STORE_PATH), { recursive: true });
+  await fs.writeFile(LOCAL_STORE_PATH, JSON.stringify(store, null, 2), 'utf8');
+}
+
+async function updateLocalStore<T>(updater: (store: LocalStore) => T | Promise<T>): Promise<T> {
+  const store = await readLocalStore();
+  const result = await updater(store);
+  await writeLocalStore(store);
+  return result;
+}
 
 // Get interview by ID
 export async function getInterview(id: string): Promise<StoredInterview | null> {
   try {
-    return await kv.get<StoredInterview>(`${INTERVIEW_PREFIX}${id}`);
+    if (await shouldUseMongo()) {
+      const interview = await Interview.findOne(interviewLookupQuery(id)).lean();
+      return interview ? toStoredInterview(interview) : null;
+    }
+
+    const store = await readLocalStore();
+    return store.interviews[id] || null;
   } catch (error) {
     console.error('Error getting interview:', error);
     return null;
@@ -23,15 +241,23 @@ export async function getInterview(id: string): Promise<StoredInterview | null> 
 // Save interview (create or update)
 export async function saveInterview(interview: StoredInterview): Promise<boolean> {
   try {
-    // Save the interview
-    await kv.set(`${INTERVIEW_PREFIX}${interview.id}`, interview);
+    if (await shouldUseMongo()) {
+      await Interview.findOneAndUpdate(
+        { id: interview.id },
+        { $set: interview },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+      return true;
+    }
 
-    // Add to study index for easy lookup by study
-    await kv.sadd(`${STUDY_INDEX_PREFIX}${interview.studyId}`, interview.id);
-
-    // Add to global index
-    await kv.sadd('all-interviews', interview.id);
-
+    await updateLocalStore((store) => {
+      store.interviews[interview.id] = interview;
+      const studyInterviews = store.studyInterviews[interview.studyId] || [];
+      if (!studyInterviews.includes(interview.id)) {
+        studyInterviews.push(interview.id);
+      }
+      store.studyInterviews[interview.studyId] = studyInterviews;
+    });
     return true;
   } catch (error) {
     console.error('Error saving interview:', error);
@@ -42,15 +268,15 @@ export async function saveInterview(interview: StoredInterview): Promise<boolean
 // Get all interviews
 export async function getAllInterviews(): Promise<StoredInterview[]> {
   try {
-    const ids = await kv.smembers('all-interviews');
-    if (!ids || ids.length === 0) return [];
+    if (await shouldUseMongo()) {
+      const interviews = await Interview.find().lean();
+      return interviews
+        .map(toStoredInterview)
+        .sort((a, b) => b.createdAt - a.createdAt);
+    }
 
-    const interviews = await Promise.all(
-      ids.map(id => kv.get<StoredInterview>(`${INTERVIEW_PREFIX}${id}`))
-    );
-
-    return interviews
-      .filter((i): i is StoredInterview => i !== null)
+    const store = await readLocalStore();
+    return Object.values(store.interviews)
       .sort((a, b) => b.createdAt - a.createdAt);
   } catch (error) {
     console.error('Error getting all interviews:', error);
@@ -61,15 +287,18 @@ export async function getAllInterviews(): Promise<StoredInterview[]> {
 // Get interviews for a specific study
 export async function getStudyInterviews(studyId: string): Promise<StoredInterview[]> {
   try {
-    const ids = await kv.smembers(`${STUDY_INDEX_PREFIX}${studyId}`);
-    if (!ids || ids.length === 0) return [];
+    if (await shouldUseMongo()) {
+      const interviews = await Interview.find({ studyId }).lean();
+      return interviews
+        .map(toStoredInterview)
+        .sort((a, b) => b.createdAt - a.createdAt);
+    }
 
-    const interviews = await Promise.all(
-      ids.map(id => kv.get<StoredInterview>(`${INTERVIEW_PREFIX}${id}`))
-    );
-
-    return interviews
-      .filter((i): i is StoredInterview => i !== null)
+    const store = await readLocalStore();
+    const ids = store.studyInterviews[studyId] || [];
+    return ids
+      .map(id => store.interviews[id])
+      .filter((i): i is StoredInterview => Boolean(i))
       .sort((a, b) => b.createdAt - a.createdAt);
   } catch (error) {
     console.error('Error getting study interviews:', error);
@@ -80,9 +309,17 @@ export async function getStudyInterviews(studyId: string): Promise<StoredIntervi
 // Delete interview
 export async function deleteInterview(id: string, studyId: string): Promise<boolean> {
   try {
-    await kv.del(`${INTERVIEW_PREFIX}${id}`);
-    await kv.srem(`${STUDY_INDEX_PREFIX}${studyId}`, id);
-    await kv.srem('all-interviews', id);
+    if (await shouldUseMongo()) {
+      await Interview.deleteOne(interviewLookupQuery(id));
+      await incrementStudyInterviewCount(studyId);
+      return true;
+    }
+
+    await updateLocalStore((store) => {
+      delete store.interviews[id];
+      store.studyInterviews[studyId] = (store.studyInterviews[studyId] || [])
+        .filter(interviewId => interviewId !== id);
+    });
     return true;
   } catch (error) {
     console.error('Error deleting interview:', error);
@@ -90,14 +327,35 @@ export async function deleteInterview(id: string, studyId: string): Promise<bool
   }
 }
 
-// Check if KV is available (for development without KV)
+// Historical name retained for existing route imports.
 export async function isKVAvailable(): Promise<boolean> {
-  try {
-    await kv.ping();
-    return true;
-  } catch {
-    return false;
+  return (await shouldUseMongo()) || isLocalFileStorageEnabled();
+}
+
+export async function isMongoStorageAvailable(): Promise<boolean> {
+  return await shouldUseMongo();
+}
+
+export async function getStorageWarning(): Promise<string | null> {
+  if (await shouldUseMongo()) return null;
+
+  if (!isMongoConfigured()) {
+    return 'Storage not configured. Set MONGODB_URI to enable persistence.';
   }
+
+  const message = lastMongoError instanceof Error
+    ? lastMongoError.message
+    : String(lastMongoError || '');
+
+  if (/bad auth|authentication failed/i.test(message)) {
+    return 'MongoDB authentication failed. Update the username/password in MONGODB_URI, and URL-encode special characters in the password.';
+  }
+
+  if (/ENOTFOUND|ECONNREFUSED|querySrv|server selection/i.test(message)) {
+    return 'MongoDB network connection failed. Check Atlas Network Access and allow your current IP address.';
+  }
+
+  return 'MongoDB connection failed. Check MONGODB_URI and MongoDB Atlas settings.';
 }
 
 // ============================================
@@ -107,8 +365,18 @@ export async function isKVAvailable(): Promise<boolean> {
 // Save study (create or update)
 export async function saveStudy(study: StoredStudy): Promise<boolean> {
   try {
-    await kv.set(`${STUDY_PREFIX}${study.id}`, study);
-    await kv.sadd(ALL_STUDIES_KEY, study.id);
+    if (await shouldUseMongo()) {
+      await Study.findOneAndUpdate(
+        { id: study.id },
+        { $set: study },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+      return true;
+    }
+
+    await updateLocalStore((store) => {
+      store.studies[study.id] = study;
+    });
     return true;
   } catch (error) {
     console.error('Error saving study:', error);
@@ -119,7 +387,13 @@ export async function saveStudy(study: StoredStudy): Promise<boolean> {
 // Get study by ID
 export async function getStudy(id: string): Promise<StoredStudy | null> {
   try {
-    return await kv.get<StoredStudy>(`${STUDY_PREFIX}${id}`);
+    if (await shouldUseMongo()) {
+      const study = await Study.findOne({ id }).lean();
+      return study ? toStoredStudy(study) : null;
+    }
+
+    const store = await readLocalStore();
+    return store.studies[id] || null;
   } catch (error) {
     console.error('Error getting study:', error);
     return null;
@@ -129,15 +403,26 @@ export async function getStudy(id: string): Promise<StoredStudy | null> {
 // Get all studies
 export async function getAllStudies(): Promise<StoredStudy[]> {
   try {
-    const ids = await kv.smembers(ALL_STUDIES_KEY);
-    if (!ids || ids.length === 0) return [];
+    if (await shouldUseMongo()) {
+      const studies = await Study.find().sort({ createdAt: -1 }).lean();
+      return await Promise.all(
+        studies.map(async (study) => {
+          const storedStudy = toStoredStudy(study);
+          const interviewCount = await Interview.countDocuments({ studyId: storedStudy.id });
+          return {
+            ...storedStudy,
+            interviewCount
+          };
+        })
+      );
+    }
 
-    const studies = await Promise.all(
-      ids.map(id => kv.get<StoredStudy>(`${STUDY_PREFIX}${id}`))
-    );
-
-    return studies
-      .filter((s): s is StoredStudy => s !== null)
+    const store = await readLocalStore();
+    return Object.values(store.studies)
+      .map(study => ({
+        ...study,
+        interviewCount: store.studyInterviews[study.id]?.length || study.interviewCount || 0
+      }))
       .sort((a, b) => b.createdAt - a.createdAt);
   } catch (error) {
     console.error('Error getting all studies:', error);
@@ -148,32 +433,47 @@ export async function getAllStudies(): Promise<StoredStudy[]> {
 // Delete study (only if no interviews exist)
 export async function deleteStudy(id: string): Promise<{ success: boolean; error?: string }> {
   try {
-    // Check for existing interviews
-    const interviewIds = await kv.smembers(`${STUDY_INDEX_PREFIX}${id}`);
-    if (interviewIds && interviewIds.length > 0) {
-      return { success: false, error: 'Cannot delete study with existing interviews' };
+    if (await shouldUseMongo()) {
+      const interviewCount = await Interview.countDocuments({ studyId: id });
+      if (interviewCount > 0) {
+        return { success: false, error: 'Cannot delete study with existing interviews' };
+      }
+
+      await Study.deleteOne({ id });
+      return { success: true };
     }
 
-    await kv.del(`${STUDY_PREFIX}${id}`);
-    await kv.srem(ALL_STUDIES_KEY, id);
-    return { success: true };
+    return await updateLocalStore((store) => {
+      const interviewIds = store.studyInterviews[id] || [];
+      if (interviewIds.length > 0) {
+        return { success: false, error: 'Cannot delete study with existing interviews' };
+      }
+
+      delete store.studies[id];
+      delete store.studyInterviews[id];
+      return { success: true };
+    });
   } catch (error) {
     console.error('Error deleting study:', error);
     return { success: false, error: 'Failed to delete study' };
   }
 }
 
-// Increment interview count for a study
+// Refresh interview count for a study
 export async function incrementStudyInterviewCount(studyId: string): Promise<boolean> {
   try {
     const study = await getStudy(studyId);
     if (!study) return false;
 
-    study.interviewCount += 1;
+    const interviewCount = (await shouldUseMongo())
+      ? await Interview.countDocuments({ studyId })
+      : (await readLocalStore()).studyInterviews[studyId]?.length || 0;
+
+    study.interviewCount = interviewCount;
     study.updatedAt = Date.now();
     return await saveStudy(study);
   } catch (error) {
-    console.error('Error incrementing study interview count:', error);
+    console.error('Error refreshing study interview count:', error);
     return false;
   }
 }
@@ -183,7 +483,7 @@ export async function lockStudy(studyId: string): Promise<boolean> {
   try {
     const study = await getStudy(studyId);
     if (!study) return false;
-    if (study.isLocked) return true; // Already locked
+    if (study.isLocked) return true;
 
     study.isLocked = true;
     study.updatedAt = Date.now();
@@ -191,5 +491,74 @@ export async function lockStudy(studyId: string): Promise<boolean> {
   } catch (error) {
     console.error('Error locking study:', error);
     return false;
+  }
+}
+
+export async function saveParticipantToken(
+  token: string,
+  data: { studyId: string; studyConfig: StoredStudy['config'] },
+  ttlSeconds: number
+): Promise<boolean> {
+  try {
+    if (await shouldUseMongo()) {
+      await ParticipantToken.findOneAndUpdate(
+        { token },
+        {
+          $set: {
+            ...data,
+            expiresAt: new Date(Date.now() + ttlSeconds * 1000)
+          }
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+      return true;
+    }
+
+    await updateLocalStore((store) => {
+      store.participantTokens[token] = {
+        ...data,
+        expiresAt: Date.now() + ttlSeconds * 1000
+      };
+    });
+    return true;
+  } catch (error) {
+    console.error('Error saving participant token:', error);
+    return false;
+  }
+}
+
+export async function getParticipantToken(token: string): Promise<{ studyId: string; studyConfig: StoredStudy['config'] } | null> {
+  try {
+    if (await shouldUseMongo()) {
+      const tokenData = await ParticipantToken.findOne({
+        token,
+        expiresAt: { $gt: new Date() }
+      }).lean();
+
+      if (!tokenData) return null;
+
+      return {
+        studyId: tokenData.studyId,
+        studyConfig: tokenData.studyConfig
+      };
+    }
+
+    const store = await readLocalStore();
+    const tokenData = store.participantTokens[token];
+    if (!tokenData) return null;
+    if (tokenData.expiresAt < Date.now()) {
+      await updateLocalStore((currentStore) => {
+        delete currentStore.participantTokens[token];
+      });
+      return null;
+    }
+
+    return {
+      studyId: tokenData.studyId,
+      studyConfig: tokenData.studyConfig
+    };
+  } catch (error) {
+    console.error('Error getting participant token:', error);
+    return null;
   }
 }

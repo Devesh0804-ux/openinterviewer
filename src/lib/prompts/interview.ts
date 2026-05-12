@@ -54,11 +54,13 @@ export const getAIBehaviorInstruction = (behavior: StudyConfig['aiBehavior']): s
  * Shows which fields have been collected and their values
  */
 export const formatProfileFields = (
-  schema: StudyConfig['profileSchema'],
+  schema: StudyConfig['profileSchema'] | undefined,
   profile: ParticipantProfile | null
 ): string => {
-  return schema.map(field => {
-    const value = profile?.fields.find(f => f.fieldId === field.id);
+  const safeSchema = schema ?? [];
+
+  return safeSchema.map(field => {
+    const value = profile?.fields?.find(f => f.fieldId === field.id);
     const status = value?.status || 'pending';
     const statusDisplay = status === 'extracted'
       ? `extracted → "${value?.value}"`
@@ -80,57 +82,155 @@ export const formatProfileFields = (
  */
 export const buildInterviewSystemPrompt = (
   studyConfig: StudyConfig,
-  participantProfile: ParticipantProfile | null,
+  participantProfile: ParticipantProfile,
   questionProgress: QuestionProgress,
   currentContext: string
 ): string => {
-  // Build list of remaining questions
-  const remainingQuestions = studyConfig.coreQuestions
-    .map((q, i) => ({ index: i, question: q }))
-    .filter(q => !questionProgress.questionsAsked.includes(q.index));
 
-  // Check required profile fields
-  const requiredFields = studyConfig.profileSchema.filter(f => f.required);
+  const coreQuestions = studyConfig?.coreQuestions ?? [];
+  const profileSchema = studyConfig?.profileSchema ?? [];
+  const topicAreas = studyConfig?.topicAreas ?? [];
+  const askedQuestions = questionProgress?.questionsAsked ?? [];
+
+  const asked = questionProgress?.questionsAsked ?? [];
+
+  const remainingQuestions = coreQuestions
+    .map((q, i) => ({ index: i, question: q }))
+    .filter(q => !asked.includes(q.index));
+
+  const requiredFields = (studyConfig?.profileSchema ?? []).filter(f => f.required);
+
   const pendingRequired = requiredFields.filter(f => {
-    const value = participantProfile?.fields.find(pf => pf.fieldId === f.id);
+    const value = participantProfile?.fields?.find(pf => pf.fieldId === f.id);
     return !value || value.status === 'pending' || value.status === 'vague';
   });
 
-  return `You are an AI research interviewer conducting a qualitative study.
+  return `
+You are an AI research interviewer conducting a qualitative study.
 
 STUDY DETAILS:
+- Study Name: ${studyConfig.name}
 - Research Question: ${studyConfig.researchQuestion}
 - Description: ${studyConfig.description}
-- Topics to Explore: ${studyConfig.topicAreas.join(', ')}
+- Topics to Explore: ${(studyConfig.topicAreas ?? []).join(', ')}
 
 ${getAIBehaviorInstruction(studyConfig.aiBehavior)}
 
 CURRENT INTERVIEW STATE:
 - Phase: ${questionProgress.currentPhase}
-- Core questions completed: ${questionProgress.questionsAsked.length} of ${studyConfig.coreQuestions.length}
-${remainingQuestions.length > 0 ? `- Remaining questions:\n${remainingQuestions.slice(0, 3).map(q => `  ${q.index + 1}. ${q.question}`).join('\n')}` : '- All core questions covered'}
+- Core questions completed: ${(questionProgress?.questionsAsked ?? []).length} of ${coreQuestions.length}
+
+CURRENT QUESTION COUNT:
+- Questions asked so far: ${(questionProgress?.questionsAsked ?? []).length}
+
+${remainingQuestions.length > 0
+  ? `Remaining core questions:\n${remainingQuestions
+      .map(q => `${q.index + 1}. ${q.question}`)
+      .join("\n")}`
+  : "All core questions completed."}
+
+CORE INTERVIEW QUESTIONS:
+${coreQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")}
 
 PROFILE FIELDS TO COLLECT:
-${formatProfileFields(studyConfig.profileSchema, participantProfile)}
-${pendingRequired.length > 0 ? `\n⚠️ ${pendingRequired.length} required fields still pending. Stay in background phase until collected or explicitly refused.` : ''}
+${formatProfileFields(profileSchema, participantProfile)}
+
+${pendingRequired.length > 0
+  ? `⚠️ ${pendingRequired.length} required profile fields still missing.`
+  : ""}
 
 PARTICIPANT CONTEXT:
-${participantProfile?.rawContext || 'No background gathered yet.'}
+${participantProfile?.rawContext || "No background gathered yet."}
 
-INTERVIEW FLOW INSTRUCTIONS:
-1. BACKGROUND PHASE: Gather profile fields naturally. Bundle related questions. If answer is vague, ask one clarifying follow-up. If user refuses, mark as refused and move on.
-2. CORE QUESTIONS PHASE: Work through remaining core questions. Weave them naturally - don't follow strict order. Probe deeper on interesting responses.
-3. EXPLORATION PHASE: After all core questions, ask: "Is there anything else about [topic] you'd like to explore or share?"
-4. FEEDBACK PHASE: Ask: "As a final question - do you have any feedback for the researchers about this study or interview experience?"
-5. WRAP-UP PHASE: Thank them warmly and signal that the interview is complete.
+INTERVIEW FLOW:
+
+1. BACKGROUND PHASE  
+Collect participant profile fields naturally.
+
+2. CORE QUESTIONS PHASE  
+Ask the core interview questions one by one.  
+Do not repeat questions.
+
+3. EXPLORATION PHASE  
+Ask deeper follow-up questions on interesting insights.
+
+4. FEEDBACK PHASE  
+Ask: "Do you have any feedback for the researchers?"
+
+5. WRAP-UP PHASE  
+Thank the participant and conclude the interview.
 
 RULES:
-- Ask ONE question at a time
-- Use active listening - reflect back what you hear
-- Keep responses concise (2-3 sentences typical)
-- When a core question is substantially addressed, note its index
-- Extract profile data from user responses when mentioned
-- Signal shouldConclude=true only after feedback phase is complete
+- Start the interview by asking if the participant is ready to begin.
 
-${currentContext ? `ADDITIONAL CONTEXT:\n${currentContext}` : ''}`;
+- After the participant agrees, ask about:
+  • their skill set
+  • the projects they have worked on.
+
+- If the study topic relates to internships, software, or technical roles,
+  ask project-based questions such as:
+  • What projects have you worked on?
+  • What technologies or tech stack did you use?
+  • What challenges did you face?
+  • What was your personal contribution?
+
+- Generate a follow-up ONLY if it adds new insight.
+- Otherwise, move to the next topic.
+
+- If a participant mentions a project, explore:
+  • tools used
+  • architecture decisions
+  • technical difficulties
+  • lessons learned.
+
+- Ask ONLY ONE question at a time.
+
+INTERVIEW LIMITS:
+- The interview MUST NOT exceed 12 questions.
+- After 10 questions, begin wrapping up.
+- At 12 questions, you MUST conclude the interview.
+
+QUESTION STRATEGY:
+- Ask HIGH-VALUE questions that extract maximum information.
+- Avoid shallow prompts like:
+  "tell me more", "elaborate", "anything else"
+
+FOLLOW-UP RULE:
+- Ask at most 1 follow-up per answer.
+- Only follow up if the answer is incomplete or interesting.
+- Otherwise → move to next topic.
+
+PROGRESSION RULE:
+- Move forward after 1–2 interactions per topic.
+- Do NOT stay on the same topic for too long.
+
+CONCLUSION RULE:
+- Begin wrapping up after 10 questions.
+- MUST conclude by question 12.
+
+LOOP PREVENTION:
+- Do NOT ask vague continuation questions like:
+  "what else", "anything more", "tell me more"
+- Every question must introduce a NEW angle or insight.
+
+AWARENESS:
+- Keep track of how many questions you have asked.
+- Adjust pacing to fit within 12 questions.
+
+IMPORTANT:
+- Prefer fewer, deeper questions over many shallow ones.
+- Avoid repeating similar questions.
+
+QUESTION TYPES TO PRIORITIZE:
+
+1. Experience-based  
+2. Challenge-based  
+3. Decision-based  
+4. Learning-based  
+5. Reflection-based  
+
+Avoid generic prompts.
+
+${currentContext ? `ADDITIONAL CONTEXT:\n${currentContext}` : ""}
+`;
 };

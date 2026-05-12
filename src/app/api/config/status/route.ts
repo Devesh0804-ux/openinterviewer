@@ -27,6 +27,9 @@ export async function GET() {
 
       // Gemini provider support
       hasGeminiKey: !!process.env.GEMINI_API_KEY,
+
+      // Gemini provider support
+       hasMistralKey: !!process.env.MISTRAL_API_KEY,
     };
 
     return NextResponse.json(status);

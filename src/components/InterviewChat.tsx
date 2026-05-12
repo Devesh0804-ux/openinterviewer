@@ -1,13 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
+import Image from 'next/image';
 import { useStore } from '@/store';
-import {
-  generateInterviewResponse,
-  getInterviewGreeting
-} from '@/services/geminiService';
 import { InterviewMessage, InterviewPhase } from '@/types';
 import ReactMarkdown from 'react-markdown';
 import {
@@ -19,18 +16,38 @@ import {
   CheckCircle,
   User
 } from 'lucide-react';
+import { data } from 'framer-motion/m';
 
 // Phase display labels
 const phaseLabels: Record<InterviewPhase, string> = {
-  'background': 'Getting to know you',
+  background: 'Getting to know you',
   'core-questions': 'Core Questions',
-  'exploration': 'Exploring further',
-  'feedback': 'Your feedback',
+  exploration: 'Exploring further',
+  feedback: 'Your feedback',
   'wrap-up': 'Wrapping up'
 };
 
 const InterviewChat: React.FC = () => {
   const router = useRouter();
+  const params = useParams();
+  const tokenFromUrl = params.token as string;
+  const [warnings, setWarnings] = useState(0);
+
+  const triggerWarning = () => {
+    setWarnings((prev) => {
+      const newWarnings = prev + 1;
+
+      alert(`Copy/Paste is not allowed. Warning ${newWarnings}/3`);
+
+      if (newWarnings >= 3) {
+        alert("Too many violations. Interview will be submitted.");
+        router.push("/synthesis");
+      }
+
+      return newWarnings;
+    });
+  };
+
   const {
     studyConfig,
     participantProfile,
@@ -47,171 +64,405 @@ const InterviewChat: React.FC = () => {
     completeInterview,
     updateProfileField,
     setProfileRawContext,
-    participantToken
+    participantToken,
+    setParticipantToken,
+    viewMode
   } = useStore();
+
+  useEffect(() => {
+    console.log("Current participantToken:", participantToken);
+  }, [participantToken]);
+
+  useEffect(() => {
+  if (tokenFromUrl && !participantToken) {
+    setParticipantToken(tokenFromUrl);
+  }
+}, [tokenFromUrl]);
+
 
   const [input, setInput] = useState('');
   const [initialized, setInitialized] = useState(false);
   const [showFinishOption, setShowFinishOption] = useState(false);
-
+  const [isFinishing, setIsFinishing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const greetingSent = useRef(false);
 
-  // Scroll to bottom on new messages
+  const [onboardingStep, setOnboardingStep] = useState<
+    "start" | "name" | "done"
+  >("start");
+
+  // Scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [interviewHistory, isAiThinking]);
 
-  // Show finish option after background phase
+  // Show finish option
   useEffect(() => {
     if (questionProgress.currentPhase !== 'background') {
       setShowFinishOption(true);
     }
   }, [questionProgress.currentPhase]);
 
-  // Initialize with greeting
+  // useEffect(() => {
+
+  //     if (viewMode !== "participant") return;
+  //   const handleKeyDown = (e: KeyboardEvent) => {
+  //     if (
+  //       e.ctrlKey &&
+  //       ["c", "v", "x", "a"].includes(e.key.toLowerCase())
+  //     ) {
+  //       e.preventDefault();
+  //       triggerWarning();
+  //     }
+  //   };
+
+  //   const handlePaste = (e: ClipboardEvent) => {
+  //     e.preventDefault();
+  //     triggerWarning();
+  //   };
+
+  //   const handleCopy = (e: ClipboardEvent) => {
+  //     e.preventDefault();
+  //     triggerWarning();
+  //   };
+
+  //   const handleDrop = (e: DragEvent) => {
+  //     e.preventDefault();
+  //     triggerWarning();
+  //   };
+
+  //   const disableRightClick = (e: MouseEvent) => {
+  //     e.preventDefault();
+  //     triggerWarning();
+  //   };
+
+  //   const handleVisibilityChange = () => {
+  //     if (document.hidden) {
+  //       setWarnings((prev) => {
+  //         const newWarnings = prev + 1;
+
+  //         if (newWarnings === 1) {
+  //           alert("Warning: Switching tabs is not allowed during the interview.");
+  //         }
+
+  //         if (newWarnings >= 2) {
+  //           alert("You switched tabs again. The interview will now be submitted.");
+  //           router.push("/synthesis");
+  //         }
+
+  //         return newWarnings;
+  //       });
+  //     }
+  //   };
+
+  //   document.addEventListener("visibilitychange", handleVisibilityChange);
+
+  //   document.addEventListener("keydown", handleKeyDown);
+  //   document.addEventListener("paste", handlePaste);
+  //   document.addEventListener("copy", handleCopy);
+  //   document.addEventListener("drop", handleDrop);
+  //   document.addEventListener("contextmenu", disableRightClick);
+
+  //   return () => {
+  //     document.removeEventListener("keydown", handleKeyDown);
+  //     document.removeEventListener("paste", handlePaste);
+  //     document.removeEventListener("copy", handleCopy);
+  //     document.removeEventListener("drop", handleDrop);
+  //     document.removeEventListener("contextmenu", disableRightClick);
+  //     document.removeEventListener("visibilitychange", handleVisibilityChange);
+  //   };
+
+  // }, []);
+
+  // 🔥 ADD THIS EFFECT RIGHT HERE
   useEffect(() => {
-    let mounted = true;
+    if (viewMode !== 'participant') {
+      setAiThinking(false);
+    }
+  }, [viewMode]);
 
-    const initialize = async () => {
-      if (!studyConfig || initialized || interviewHistory.length > 0) return;
+  // Greeting initialization (AI starts the interview)
+  useEffect(() => {
+    const startInterview = async () => {
 
-      setInitialized(true);
-      setAiThinking(true);
+      if (greetingSent.current) return;   // ✅ stop second call
+      greetingSent.current = true;
+
+      if (!studyConfig) return;
+      if (!participantToken) return;
+      if (viewMode !== "participant") return;
+      if (interviewHistory.length > 0) return; // ✅ prevents duplicate greeting
 
       try {
-        const greeting = await getInterviewGreeting(studyConfig, participantToken);
+        setAiThinking(true);
 
-        if (!mounted) return; // Prevent state update if unmounted
-
-        const msg: InterviewMessage = {
+        addMessage({
           id: `msg-${Date.now()}`,
-          role: 'ai',
-          content: greeting,
+          role: "ai",
+          content: "Should we begin the interview?",
           timestamp: Date.now()
-        };
-        addMessage(msg);
+        });
+
       } catch (error) {
-        console.error('Error initializing interview:', error);
+        console.error("Greeting error:", error);
       } finally {
-        if (mounted) setAiThinking(false);
+        setAiThinking(false);
       }
     };
 
-    initialize();
-
-    return () => { mounted = false; };
-  }, [studyConfig, initialized, interviewHistory.length]);
+    startInterview();
+  }, [studyConfig, participantToken, viewMode]);
 
   const handleSend = async (textOverride?: string) => {
-    const text = textOverride || input;
-    if (!text.trim() || !studyConfig) return;
 
-    // Add user message
+    const text = textOverride || input;
+    if (!text.trim()) return;
+
+    // ✅ ADD USER MESSAGE FIRST (IMPORTANT)
     const userMsg: InterviewMessage = {
       id: `msg-${Date.now()}`,
-      role: 'user',
+      role: "user",
       content: text,
       timestamp: Date.now()
     };
+
     addMessage(userMsg);
-    setInput('');
+    setInput("");
 
-    // Also save to context
+    // 🔥 STEP 0: Start confirmation
+    if (onboardingStep === "start") {
+      const positive = ["yes", "y", "ok", "sure", "start"];
+
+      if (positive.some(p => text.toLowerCase().includes(p))) {
+        addMessage({
+          id: `msg-${Date.now()}`,
+          role: "ai",
+          content: "What is your name?",
+          timestamp: Date.now()
+        });
+
+        setOnboardingStep("name");
+      } else {
+        addMessage({
+          id: `msg-${Date.now()}`,
+          role: "ai",
+          content: "No problem. Let me know when you're ready.",
+          timestamp: Date.now()
+        });
+      }
+
+      return;
+    }
+
+    // 🔥 STEP 1: Name
+    if (onboardingStep === "name") {
+      const name = text.trim();
+
+      // 🔥 Force correct state update
+      const currentState = useStore.getState();
+
+      useStore.setState((state: any) => ({
+        participantProfile: {
+          ...state.participantProfile,
+          fields: [
+            ...(state.participantProfile?.fields || []).filter(
+              (f: any) => f.fieldId !== "name"
+            ),
+            {
+              fieldId: "name",
+              value: name,
+              status: "extracted"
+            }
+          ]
+        }
+      }));
+
+      addMessage({
+        id: `msg-${Date.now()}`,
+        role: "ai",
+        content: `Nice to meet you, ${name}! Let's begin.\n\nCan you tell me about your skillset?`,
+        timestamp: Date.now()
+      });
+
+      appendContext("User name captured", "system");
+
+      setOnboardingStep("done");
+      return;
+    }
+ 
+    if (onboardingStep !== "done") return;
+
+    console.log("participantToken at send:", participantToken);
+
+    if (isFinishing) return;
+    if (!studyConfig) return;
+
     appendContext(text, 'text');
-
-    // Generate AI response
     setAiThinking(true);
 
     try {
-      const currentContext = contextEntries.map(e => e.text).join('\n');
-      const updatedHistory = [...interviewHistory, userMsg];
+      const currentContext =
+        Array.isArray(contextEntries)
+          ? contextEntries.map((e: any) => e.text).join('\n')
+          : '';
 
-      const response = await generateInterviewResponse(
-        updatedHistory,
-        studyConfig,
-        participantProfile,
-        questionProgress,
-        currentContext,
-        participantToken
-      );
+      const latestHistory = useStore.getState().interviewHistory;
+      const updatedHistory = latestHistory.concat(userMsg);
 
-      // Handle profile updates
-      if (response.profileUpdates && response.profileUpdates.length > 0) {
-        response.profileUpdates.forEach(update => {
-          updateProfileField(update.fieldId, update.value, update.status);
+      const latestProfile = useStore.getState().participantProfile;
+
+      const res = await fetch("/api/interview", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${participantToken}`
+        },
+        body: JSON.stringify({
+          history: updatedHistory,
+          studyConfig,
+          participantProfile: latestProfile, 
+          questionProgress,
+          currentContext
+        })
+      });
+
+      const response = await res.json();
+      response.shouldConclude = response.shouldConclude === true || response.shouldConclude === "true";
+
+      console.log("FULL FRONTEND RESPONSE:", response);
+      
+      const sentHistory = interviewHistory.concat(userMsg);
+
+        addMessage({
+          id: `msg-${Date.now()}`,
+          role: "ai",
+          content: response.message,
+          timestamp: Date.now()
         });
 
-        // Update raw context with user's background info
-        if (questionProgress.currentPhase === 'background') {
-          const existingContext = participantProfile?.rawContext || '';
-          const newContext = existingContext + (existingContext ? '\n' : '') + text;
-          setProfileRawContext(newContext);
-        }
+      console.log("TYPE OF shouldConclude:", typeof response.shouldConclude);
+      console.log("VALUE:", response.shouldConclude);
+
+      if (response.profileUpdates?.length) {
+        response.profileUpdates.forEach((update: any) => {
+          if (update.fieldId === "name") return;
+          updateProfileField(update.fieldId, update.value, update.status);
+        });
       }
 
-      // Handle phase transition
+      if (response.participantProfile) {
+        useStore.setState({
+          participantProfile: response.participantProfile
+        });
+      }
+
       if (response.phaseTransition) {
         setInterviewPhase(response.phaseTransition);
       }
 
-      // Handle question progress
       if (response.questionAddressed !== null && response.questionAddressed !== undefined) {
         markQuestionAsked(response.questionAddressed);
       }
 
-      // Add AI message
-      const aiMsg: InterviewMessage = {
-        id: `msg-${Date.now()}`,
-        role: 'ai',
-        content: response.message,
-        timestamp: Date.now()
-      };
-      addMessage(aiMsg);
+      const msg = response.message?.toLowerCase() || "";
 
-      // Handle interview conclusion
-      if (response.shouldConclude) {
-        completeInterview();
+      const isClosingMessage =
+        msg.includes("conclude") ||
+        msg.includes("concludes") ||
+        msg.includes("thank you for your time") ||
+        msg.includes("that concludes our interview") ||
+        msg.includes("interview is complete");
+
+      console.log("CHECK TRIGGER:", {
+        shouldConclude: response.shouldConclude,
+        isClosingMessage
+      });
+
+      console.log("🚨 FINAL CHECK:", {
+        shouldConclude: response.shouldConclude,
+        isClosingMessage,
+        message: response.message
+      });
+
+      if (response.shouldConclude || isClosingMessage) {
+        console.log("🔥 ENTERED COMPLETE BLOCK");
+
+        setIsFinishing(true);     // 🔥 show loader immediately
+        completeInterview();      // lock input
+
+        const latestHistory = useStore.getState().interviewHistory;
+
+        const finalHistory = [
+          ...latestHistory,
+          userMsg,
+          {
+            id: `msg-${Date.now()}`,
+            role: 'ai',
+            content: response.message,
+            timestamp: Date.now()
+          }
+        ];
+
+        const currentProfile = useStore.getState().participantProfile;
+
+        console.log("🔥 CALLING /complete API");
+
+        const completeResponse = await fetch('/api/interview/complete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${participantToken}`
+          },
+          body: JSON.stringify({
+            history: finalHistory,
+            studyConfig,
+            participantProfile: currentProfile,
+            studyId: studyConfig.id
+          })
+        });
+
+        console.log("COMPLETE RES STATUS:", completeResponse.status);
+
+        if (!completeResponse.ok) {
+          const error = await completeResponse.json().catch(() => ({}));
+          throw new Error(error.error || 'Failed to save completed interview');
+        }
+
+        const { interviewId } = await completeResponse.json();
+        const redirectUrl = `/p/${participantToken}/complete${interviewId ? `?interviewId=${interviewId}` : ''}`;
+        router.replace(redirectUrl);
       }
+
     } catch (error) {
-      console.error('Error generating response:', error);
-      const errorMsg: InterviewMessage = {
+      console.error('Interview error:', error);
+
+      addMessage({
         id: `msg-${Date.now()}`,
         role: 'ai',
-        content: "I appreciate you sharing that. Could you tell me more?",
+        content: "Something went wrong. Let's continue.",
         timestamp: Date.now()
-      };
-      addMessage(errorMsg);
+      });
     } finally {
       setAiThinking(false);
     }
   };
 
-  const handleFinishEarly = () => {
-    completeInterview();
-  };
-
-  const handleViewAnalysis = () => {
-    setStep('synthesis');
-    router.push('/synthesis');
-  };
 
   if (!studyConfig) {
     return (
-      <div className="min-h-screen bg-stone-900 flex items-center justify-center">
-        <p className="text-stone-400">No study configured.</p>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-600">No study configured.</p>
       </div>
     );
   }
 
-  // Calculate progress
-  const totalQuestions = studyConfig.coreQuestions.length;
+const totalQuestions = studyConfig?.coreQuestions?.length ?? 0;
   const questionsCompleted = questionProgress.questionsAsked.length;
-  const isComplete = questionProgress.isComplete;
+  const isComplete = isFinishing;
 
-  // Progress display
   const getProgressDisplay = () => {
     if (questionProgress.currentPhase === 'background') {
-      return phaseLabels['background'];
+      return phaseLabels.background;
     }
     if (questionProgress.currentPhase === 'core-questions') {
       return `Question ${Math.min(questionsCompleted + 1, totalQuestions)} of ${totalQuestions}`;
@@ -219,150 +470,100 @@ const InterviewChat: React.FC = () => {
     return phaseLabels[questionProgress.currentPhase];
   };
 
-  return (
-    <div className="flex flex-col h-screen bg-stone-900">
-      {/* Header with Progress */}
-      <div className="h-16 flex items-center justify-between px-6 border-b border-stone-700 bg-stone-900/80 backdrop-blur-md">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-stone-700 flex items-center justify-center">
-            <MessageSquare size={16} className="text-stone-300" />
-          </div>
-          <div>
-            <h1 className="font-semibold text-white">{studyConfig.name}</h1>
-            <p className="text-xs text-stone-500">{getProgressDisplay()}</p>
-          </div>
+  if (isFinishing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-900">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 size={36} className="animate-spin" />
+          <p className="text-sm text-gray-500">
+            Generating your interview analysis...
+          </p>
         </div>
+      </div>
+    );
+  }
 
-        {/* Progress Dots */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5">
-            {Array.from({ length: totalQuestions }).map((_, i) => (
-              <div
-                key={i}
-                className={`w-2 h-2 rounded-full transition-colors ${
-                  questionProgress.questionsAsked.includes(i)
-                    ? 'bg-stone-400'
-                    : 'bg-stone-700'
-                }`}
-              />
-            ))}
+  return (
+    <div className="flex h-[100dvh] min-h-[100dvh] flex-col bg-gray-50">
+      {/* Header */}
+      <div className="min-h-16 flex items-center justify-between px-4 sm:px-6 py-3 border-b border-gray-200 bg-white">
+        <div className="flex items-center gap-3 min-w-0">
+          {/* Logo */}
+          <Image
+            src="/bharattech-logo.png"
+            alt="BharatTech"
+            width={40}
+            height={40}
+            className="w-9 h-9 sm:w-10 sm:h-10 object-contain flex-shrink-0"
+          />
+          <div className="min-w-0">
+            <h1 className="font-semibold text-sm sm:text-base text-gray-900 truncate">{studyConfig.name}</h1>
+            <p className="text-xs text-gray-500">{getProgressDisplay()}</p>
           </div>
-
-          {/* Subtle finish early option */}
-          {showFinishOption && !isComplete && (
-            <button
-              onClick={handleFinishEarly}
-              className="text-xs text-stone-500 hover:text-stone-400 transition-colors"
-            >
-              Finish early
-            </button>
-          )}
         </div>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-stone-900">
-        <AnimatePresence>
-          {interviewHistory.map((msg) => (
-            <motion.div
-              key={msg.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className={`max-w-[80%] rounded-2xl p-4 ${
-                  msg.role === 'user'
-                    ? 'bg-stone-700 text-white rounded-br-md'
-                    : 'bg-stone-800 border border-stone-700 text-stone-100 rounded-bl-md'
-                }`}
-              >
-                {msg.role === 'ai' && (
-                  <div className="flex items-center gap-2 mb-2 text-xs text-stone-500">
-                    <Bot size={14} />
-                    Interviewer
-                  </div>
-                )}
-                {msg.role === 'user' && (
-                  <div className="flex items-center gap-2 mb-2 text-xs text-stone-400 justify-end">
-                    You
-                    <User size={14} />
-                  </div>
-                )}
-                <div className={`prose prose-sm max-w-none prose-invert`}>
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-
-        {/* Thinking indicator */}
-        {isAiThinking && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex justify-start"
+      <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4">
+        {interviewHistory.map(msg => (
+          <div
+            key={msg.id}
+            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
-            <div className="bg-stone-800 border border-stone-700 rounded-2xl rounded-bl-md p-4">
-              <div className="flex items-center gap-2 text-stone-400 text-sm">
-                <Loader2 size={16} className="animate-spin" />
-                Thinking...
-              </div>
+            <div
+              className={`max-w-[92%] sm:max-w-[80%] rounded-2xl p-3 sm:p-4 ${
+                msg.role === 'user'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-50 text-gray-900'
+              }`}
+            >
+              <ReactMarkdown
+                className="
+                  text-sm sm:text-base 
+                  leading-7 
+                  font-medium 
+                  text-gray-900
+                  [&_*]:text-gray-900
+                "
+              >
+                {msg.content}
+              </ReactMarkdown>
             </div>
-          </motion.div>
+          </div>
+        ))}
+
+        {isAiThinking && (
+          <div className="flex justify-start">
+            <div className="bg-white border border-gray-200 shadow-sm rounded-2xl p-4">
+              <Loader2 size={16} className="animate-spin" />
+              <span className="ml-2 text-sm">Thinking...</span>
+            </div>
+          </div>
         )}
 
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area or Completion UI */}
-      {isComplete ? (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="p-6 bg-stone-800 border-t border-stone-700"
-        >
-          <div className="max-w-md mx-auto text-center space-y-4">
-            <div className="w-12 h-12 rounded-full bg-stone-700 flex items-center justify-center mx-auto">
-              <CheckCircle size={24} className="text-stone-300" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-white">Interview Complete</h3>
-              <p className="text-sm text-stone-400 mt-1">
-                Your responses have been saved. Thank you for participating.
-              </p>
-            </div>
+      {/* Input */}
+      {!isComplete && !isFinishing && (
+        <div className="p-3 sm:p-4 border-t border-gray-200 bg-white">
+          <div className="flex gap-2 sm:gap-3">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && !isAiThinking && handleSend()}
+              placeholder="Type your response..."
+              disabled={isAiThinking}
+              className="min-w-0 flex-1 px-3 sm:px-4 py-3 bg-white border border-gray-200 text-gray-900 rounded-xl placeholder:text-gray-400"
+            />
             <button
-              onClick={handleViewAnalysis}
-              className="px-6 py-3 bg-stone-600 hover:bg-stone-500 text-white font-medium rounded-xl transition-colors flex items-center gap-2 mx-auto"
+              onClick={() => handleSend()}
+              disabled={!input.trim() || isAiThinking}
+              className="p-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl flex-shrink-0"
             >
-              View Analysis <ArrowRight size={18} />
+              <Send size={20} />
             </button>
-          </div>
-        </motion.div>
-      ) : (
-        <div className="p-4 bg-stone-800 border-t border-stone-700">
-          <div className="max-w-3xl mx-auto">
-            <div className="flex gap-3">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !isAiThinking && handleSend()}
-                placeholder="Type your response..."
-                disabled={isAiThinking}
-                className="flex-1 px-4 py-3 bg-stone-900 border border-stone-600 text-stone-100 placeholder-stone-500 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-500 focus:border-stone-500 disabled:opacity-50"
-              />
-
-              <button
-                onClick={() => handleSend()}
-                disabled={!input.trim() || isAiThinking}
-                className="p-3 bg-stone-600 hover:bg-stone-500 text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <Send size={20} />
-              </button>
-            </div>
           </div>
         </div>
       )}

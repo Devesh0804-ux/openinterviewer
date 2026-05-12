@@ -73,7 +73,7 @@ Researcher                          Participant
     │                                    │       ↓
     │                                    └── Complete
     │                                           ↓
-    │◄───────────────────────────── Vercel KV (Storage)
+    │◄───────────────────────────── MongoDB (Storage)
     │
     ├── View Individual Synthesis
     ├── Run Aggregate Analysis
@@ -97,74 +97,51 @@ npm run dev
 npm run build
 ```
 
-### Development without Vercel KV
+### Development without MongoDB
 
-The app works without Vercel KV during development:
-- Interview data is not persisted (warning shown)
-- Dashboard shows empty state
-- All other features work normally
+The app can fall back to `.data/local-store.json` during local development if MongoDB is unavailable. This is intended only for local testing.
 
-To test with KV locally, install the [Vercel CLI](https://vercel.com/docs/cli) and run:
+To require MongoDB and disable the local fallback, add this to `.env.local`:
 
 ```bash
-vercel link
-vercel env pull .env.local
+LOCAL_FILE_STORAGE=false
 ```
 
-## Storage Setup (Vercel KV via Upstash)
+## Storage Setup (MongoDB Atlas)
 
-OpenInterviewer uses Vercel KV (powered by Upstash Redis) to persist studies and interview data. Without storage configured, studies won't be saved and interviews won't persist.
+OpenInterviewer uses MongoDB to persist studies, participant links, and interview data.
 
-### Setting Up Vercel KV
+### Setting Up MongoDB
 
-**Step 1: Create Upstash Redis Database**
+**Step 1: Create or open a MongoDB Atlas cluster**
 
-1. Go to your [Vercel Dashboard](https://vercel.com)
-2. Select your **openinterviewer** project
-3. Click the **"Storage"** tab
-4. Click **"Upstash"**
-5. Click **"Create Database"**
-6. Select **"Redis"** (not Kafka)
-7. Fill in:
-   - **Name**: `openinterviewer` (or any name)
-   - **Primary Region**: Choose closest to your users (e.g., `us-east-1`)
-   - Leave other settings as default
-8. Click **"Create"**
+1. Go to your [MongoDB Atlas Dashboard](https://cloud.mongodb.com)
+2. Open your project and cluster
+3. Click **"Connect"**
+4. Choose **"Drivers"**
+5. Copy the full `mongodb+srv://...` connection string
+6. Add your database username and password
+7. Add your current IP address in **Network Access**
 
-**Step 2: Connect Database to Project**
+**Step 2: Configure the app**
 
-1. After creation, click **"Connect Project"** button
-2. Select your **openinterviewer** project from the dropdown
-3. Choose environments to connect (select all: Production, Preview, Development)
-4. Click **"Connect"**
+Add the full connection string to `.env.local`:
 
-**Step 3: Redeploy**
+```bash
+MONGODB_URI=mongodb+srv://username:password@cluster0.example.mongodb.net/openinterviewer?retryWrites=true&w=majority
+```
 
-1. Go to the **"Deployments"** tab
-2. Find your latest deployment
-3. Click **"..."** menu → **"Redeploy"**
-4. Wait for deployment to complete (~1-2 minutes)
+**Step 3: Verify**
 
-**Step 4: Verify**
+
 
 1. Visit your app and log in
 2. Create and save a study
 3. Navigate to "My Studies" - the study should now appear!
 
-### Free Tier Limits (Vercel Hobby Plan)
+### Environment Variables
 
-- 10,000 commands/day
-- 256MB storage
-- Sufficient for testing and small-scale research
-
-### Environment Variables (Auto-configured)
-
-When you connect the database, these are automatically added:
-
-- `KV_REST_API_URL`
-- `KV_REST_API_TOKEN`
-- `KV_REST_API_READ_ONLY_TOKEN`
-- `KV_URL`
+- `MONGODB_URI`
 
 ## Demo Data
 
@@ -234,7 +211,7 @@ Click **"Clear Demo"** (amber button in header) to remove all demo data and star
 ├── lib/                      # Server-side utilities
 │   ├── ai.ts                 # AI provider abstraction
 │   ├── providers/            # Gemini & Claude implementations
-│   └── kv.ts                 # Vercel KV client
+│   └── kv.ts                 # MongoDB-backed storage API
 ├── utils/                    # Client-side utilities
 ├── services/                 # Client-side services
 ├── store.ts                  # Zustand state management
@@ -342,7 +319,6 @@ API keys are managed through environment variables in your Vercel dashboard:
 
 1. Go to your Vercel project → **Settings** → **Environment Variables**
 2. Add or update the required variables
-3. **Redeploy** for changes to take effect (Production deployments pick up new values automatically)
 
 ### Required Keys
 
@@ -394,7 +370,7 @@ From the Study Detail page, you can instantly revoke all participant links by to
 - **Server-side keys** (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`): Stored as environment variables, never exposed to browser
 - **Participant URLs**: Signed JWT tokens that cannot be tampered with
 - **Dashboard**: Password-protected with HTTP-only cookie authentication
-- **Data**: Stored in Vercel KV (Redis) with encrypted connections
+- **Data**: Stored in MongoDB Atlas with encrypted connections
 
 ## License
 
@@ -403,3 +379,4 @@ MIT
 ## Contributing
 
 Contributions welcome! Please read the contributing guidelines before submitting PRs.
+

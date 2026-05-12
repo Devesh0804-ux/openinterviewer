@@ -126,9 +126,8 @@ export async function verifyParticipantToken(request: Request): Promise<{ valid:
         const { payload } = await jose.jwtVerify(token, secret);
         const studyId = payload.studyId as string;
 
-        // Check if links are enabled for this study
-        // Import dynamically to avoid circular dependencies
-        const { getStudy } = await import('@/services/storageService');
+        // Check if links are enabled for this study.
+        const { getStudy } = await import('@/lib/kv');
         const study = await getStudy(studyId);
 
         if (study && study.config.linksEnabled === false) {
@@ -143,6 +142,24 @@ export async function verifyParticipantToken(request: Request): Promise<{ valid:
         }
         // Token invalid, fall through to check admin session
       }
+    }
+
+    try {
+      const { getParticipantToken } = await import('@/lib/kv');
+      const tokenData = await getParticipantToken(token);
+
+      if (tokenData) {
+        const { getStudy } = await import('@/lib/kv');
+        const study = await getStudy(tokenData.studyId);
+
+        if (study && study.config.linksEnabled === false) {
+          return { valid: false, error: 'Participant links have been disabled for this study.' };
+        }
+
+        return { valid: true, studyId: tokenData.studyId };
+      }
+    } catch {
+      // Token could not be found in storage; fall through to admin session.
     }
   }
 

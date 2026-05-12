@@ -52,7 +52,7 @@ export interface ParticipantProfile {
 
 export type AIBehavior = 'structured' | 'standard' | 'exploratory';
 
-export type AIProviderType = 'gemini' | 'claude';
+export type AIProviderType = 'gemini' | 'claude' | 'mistral';
 
 // ============================================
 // AI Model Configuration
@@ -78,6 +78,12 @@ export const CLAUDE_MODELS: AIModelOption[] = [
   { id: 'claude-opus-4-5', label: 'Claude Opus 4.5', desc: 'Most capable ($15/$75 per MTok)' },
 ];
 
+export const MISTRAL_MODELS: AIModelOption[] = [
+  { id: 'mistral-small-latest', label: 'Mistral Small', desc: 'Fast & efficient' },
+  { id: 'mistral-large-latest', label: 'Mistral Large', desc: 'Top-tier reasoning' },
+  { id: 'pixtral-12b-2409', label: 'Pixtral 12B', desc: 'Specialized performance' },
+];
+
 // Default models for each provider
 export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-5';
@@ -86,10 +92,14 @@ export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-5';
 export const GEMINI_SYNTHESIS_MODEL = 'gemini-3-pro-preview';
 export const CLAUDE_SYNTHESIS_MODEL = 'claude-opus-4-5';
 
+export const DEFAULT_MISTRAL_MODEL = 'mistral-large-latest';
+export const MISTRAL_SYNTHESIS_MODEL = 'mistral-large-latest';
+
 // Link expiration options
 export type LinkExpirationOption = 'never' | '7days' | '30days' | '90days';
 
 export interface StudyConfig {
+  _id?: string;
   id: string;
   name: string;
   description: string;
@@ -142,6 +152,15 @@ export interface SynthesisResult {
   contradictions: string[];
   keyInsights: string[];
   bottomLine: string;
+
+  extractedProfile?: {
+    role?: string;
+    industry?: string;
+    ai_frequency?: string;
+    comfort_level?: string;
+    years_experience?: string;
+  };
+
 }
 
 // ============================================
@@ -155,7 +174,7 @@ export type AppStep =
   | 'synthesis'    // Analysis results
   | 'export';      // Export data
 
-export type ViewMode = 'researcher' | 'participant';
+export type ViewMode = 'researcher' | 'participant' | 'admin';
 
 export interface ContextEntry {
   id: string;
@@ -181,11 +200,15 @@ export interface AIInterviewResponse {
 }
 
 // ============================================
-// Stored Interview (Vercel KV)
+// Stored Interview
 // ============================================
 
 export interface StoredInterview {
+  _id?: string;
+  history?: any;
+  messages?: any;
   id: string;
+  participantName?: string;
   studyId: string;
   studyName: string;
   participantProfile: ParticipantProfile;
@@ -209,7 +232,7 @@ export interface ParticipantToken {
 }
 
 // ============================================
-// Stored Study (Vercel KV)
+// Stored Study
 // ============================================
 
 export interface StoredStudy {

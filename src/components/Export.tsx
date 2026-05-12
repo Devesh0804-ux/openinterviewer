@@ -182,8 +182,8 @@ const Export: React.FC = () => {
   const totalFields = participantProfile?.fields.length || 0;
 
   return (
-    <div className="min-h-screen bg-stone-900 p-8">
-      <div className="max-w-2xl mx-auto">
+    <div className="min-h-screen bg-stone-900 px-4 py-5 sm:p-6 lg:p-8">
+      <div className="w-full max-w-2xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -192,7 +192,7 @@ const Export: React.FC = () => {
           <div className="w-16 h-16 rounded-full bg-stone-700 flex items-center justify-center mx-auto mb-4">
             <CheckCircle className="text-stone-300" size={32} />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">
+          <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">
             Interview Complete
           </h1>
           <p className="text-stone-400">
@@ -204,29 +204,29 @@ const Export: React.FC = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="bg-stone-800/50 rounded-xl border border-stone-700 p-8 space-y-6"
+          className="bg-stone-800/50 rounded-xl border border-stone-700 p-4 sm:p-6 lg:p-8 space-y-6"
         >
           {/* Stats */}
-          <div className="grid grid-cols-4 gap-3 text-center">
-            <div className="bg-stone-800 rounded-xl p-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+            <div className="bg-stone-800 rounded-xl p-3 sm:p-4">
               <div className="text-2xl font-bold text-white">
                 {interviewHistory.length}
               </div>
               <div className="text-xs text-stone-500">Messages</div>
             </div>
-            <div className="bg-stone-800 rounded-xl p-4">
+            <div className="bg-stone-800 rounded-xl p-3 sm:p-4">
               <div className="text-2xl font-bold text-white">
                 {questionProgress.questionsAsked.length}/{studyConfig?.coreQuestions.length || 0}
               </div>
               <div className="text-xs text-stone-500">Questions</div>
             </div>
-            <div className="bg-stone-800 rounded-xl p-4">
+            <div className="bg-stone-800 rounded-xl p-3 sm:p-4">
               <div className="text-2xl font-bold text-white">
                 {extractedFields.length}/{totalFields}
               </div>
               <div className="text-xs text-stone-500">Profile</div>
             </div>
-            <div className="bg-stone-800 rounded-xl p-4">
+            <div className="bg-stone-800 rounded-xl p-3 sm:p-4">
               <div className="text-2xl font-bold text-white">
                 {synthesis?.themes.length || 0}
               </div>
@@ -241,11 +241,11 @@ const Export: React.FC = () => {
                 <User size={16} className="text-stone-400" />
                 Participant Profile
               </h3>
-              <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                 {participantProfile.fields.map(f => {
                   const schema = studyConfig?.profileSchema.find(s => s.id === f.fieldId);
                   return (
-                    <div key={f.fieldId} className="flex justify-between items-center py-1">
+                    <div key={f.fieldId} className="flex flex-wrap justify-between gap-2 items-center py-1">
                       <span className="text-stone-400">{schema?.label || f.fieldId}</span>
                       <span className={`${
                         f.status === 'extracted' ? 'text-stone-200' :
@@ -269,7 +269,7 @@ const Export: React.FC = () => {
 
             <button
               onClick={handleDownloadJSON}
-              className="w-full flex items-center gap-3 p-4 border border-stone-600 rounded-xl hover:bg-stone-700 transition-colors text-left"
+              className="w-full flex items-center gap-3 p-3 sm:p-4 border border-stone-600 rounded-xl hover:bg-stone-700 transition-colors text-left"
             >
               <div className="w-10 h-10 rounded-lg bg-stone-700 flex items-center justify-center">
                 <FileJson size={20} className="text-stone-300" />
@@ -285,7 +285,7 @@ const Export: React.FC = () => {
 
             <button
               onClick={handleDownloadTranscript}
-              className="w-full flex items-center gap-3 p-4 border border-stone-600 rounded-xl hover:bg-stone-700 transition-colors text-left"
+              className="w-full flex items-center gap-3 p-3 sm:p-4 border border-stone-600 rounded-xl hover:bg-stone-700 transition-colors text-left"
             >
               <div className="w-10 h-10 rounded-lg bg-stone-700 flex items-center justify-center">
                 <FileText size={20} className="text-stone-300" />
@@ -301,7 +301,7 @@ const Export: React.FC = () => {
 
             <button
               onClick={handleCopyJSON}
-              className={`w-full flex items-center gap-3 p-4 border rounded-xl transition-colors text-left ${
+              className={`w-full flex items-center gap-3 p-3 sm:p-4 border rounded-xl transition-colors text-left ${
                 jsonCopied
                   ? 'border-green-700 bg-green-900/30'
                   : 'border-stone-600 hover:bg-stone-700'

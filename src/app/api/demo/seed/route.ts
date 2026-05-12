@@ -1,4 +1,4 @@
-// POST /api/demo/seed - Seed demo data to KV
+// POST /api/demo/seed - Seed demo data to storage
 // Protected: Requires authenticated admin session
 
 export const dynamic = 'force-dynamic';
@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verifySessionToken, SESSION_COOKIE_NAME } from '@/lib/auth';
-import { saveStudy, saveInterview, isKVAvailable, getAllStudies } from '@/lib/kv';
+import { deleteInterview, deleteStudy, saveStudy, saveInterview, isKVAvailable, getAllStudies } from '@/lib/kv';
 import { DEMO_STUDIES, DEMO_INTERVIEWS, DEMO_AGGREGATE_SYNTHESIS } from '@/lib/demoData';
 
 // Verify admin session
@@ -34,11 +34,11 @@ export async function POST() {
       return NextResponse.json({ error: auth.error }, { status: 401 });
     }
 
-    // Check KV availability
+    // Check storage availability
     const kvAvailable = await isKVAvailable();
     if (!kvAvailable) {
       return NextResponse.json(
-        { error: 'Storage not configured. Please connect Vercel KV (Upstash Redis) first.' },
+        { error: 'Storage not configured. Please set MONGODB_URI first.' },
         { status: 503 }
       );
     }
@@ -85,7 +85,7 @@ export async function POST() {
   }
 }
 
-// DELETE /api/demo/seed - Clear demo data from KV
+// DELETE /api/demo/seed - Clear demo data from storage
 export async function DELETE() {
   try {
     // Check authentication
@@ -94,7 +94,7 @@ export async function DELETE() {
       return NextResponse.json({ error: auth.error }, { status: 401 });
     }
 
-    // Check KV availability
+    // Check storage availability
     const kvAvailable = await isKVAvailable();
     if (!kvAvailable) {
       return NextResponse.json(
@@ -103,24 +103,20 @@ export async function DELETE() {
       );
     }
 
-    // Import kv for direct operations
-    const { kv } = await import('@vercel/kv');
-
     // Delete demo studies
     let studiesDeleted = 0;
-    for (const study of DEMO_STUDIES) {
-      await kv.del(`study:${study.id}`);
-      await kv.srem('all-studies', study.id);
-      studiesDeleted++;
-    }
-
-    // Delete demo interviews
     let interviewsDeleted = 0;
     for (const interview of DEMO_INTERVIEWS) {
-      await kv.del(`interview:${interview.id}`);
-      await kv.srem(`study-interviews:${interview.studyId}`, interview.id);
-      await kv.srem('all-interviews', interview.id);
-      interviewsDeleted++;
+      if (await deleteInterview(interview.id, interview.studyId)) {
+        interviewsDeleted++;
+      }
+    }
+
+    for (const study of DEMO_STUDIES) {
+      const result = await deleteStudy(study.id);
+      if (result.success) {
+        studiesDeleted++;
+      }
     }
 
     return NextResponse.json({

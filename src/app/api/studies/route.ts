@@ -5,7 +5,8 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { getAllStudies, saveStudy, isKVAvailable } from '@/lib/kv';
+import { getAllStudies, getStorageWarning, isKVAvailable, saveStudy } from '@/lib/kv';
+import { DEMO_STORED_STUDY } from '@/lib/demoData';
 import { cookies } from 'next/headers';
 import { verifySessionToken, SESSION_COOKIE_NAME } from '@/lib/auth';
 import { StudyConfig, StoredStudy } from '@/types';
@@ -36,15 +37,21 @@ export async function GET() {
       return NextResponse.json({ error: auth.error }, { status: 401 });
     }
 
-    const kvAvailable = await isKVAvailable();
-    if (!kvAvailable) {
+    const storageAvailable = await isKVAvailable();
+    if (!storageAvailable) {
       return NextResponse.json({
         studies: [],
-        warning: 'Storage not configured. Connect Vercel KV to enable persistence.'
+        warning: await getStorageWarning()
       });
     }
 
     const studies = await getAllStudies();
+
+    if (studies.length === 0) {
+      await saveStudy(DEMO_STORED_STUDY);
+      return NextResponse.json({ studies: [DEMO_STORED_STUDY] });
+    }
+
     return NextResponse.json({ studies });
   } catch (error) {
     console.error('Studies API error:', error);
@@ -63,10 +70,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: auth.error }, { status: 401 });
     }
 
-    const kvAvailable = await isKVAvailable();
-    if (!kvAvailable) {
+    const storageAvailable = await isKVAvailable();
+    if (!storageAvailable) {
       return NextResponse.json(
-        { error: 'Storage not configured. Connect Vercel KV to enable persistence.' },
+        { error: await getStorageWarning() },
         { status: 503 }
       );
     }
@@ -82,18 +89,16 @@ export async function POST(request: Request) {
     }
 
     // Validate required fields
-    if (!config.name || !config.researchQuestion || !config.coreQuestions?.length) {
+    if (!config.name || !config.researchQuestion) {
       return NextResponse.json(
-        { error: 'Study must have name, researchQuestion, and at least one core question' },
+        { error: 'Study must have Post name and Topic' },
         { status: 400 }
       );
     }
 
-    // Create server-assigned ID
     const now = Date.now();
     const studyId = randomUUID();
 
-    // Update config with server-assigned ID
     const serverConfig: StudyConfig = {
       ...config,
       id: studyId,

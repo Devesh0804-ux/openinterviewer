@@ -59,7 +59,8 @@ const EXAMPLE_STUDY: Omit<StudyConfig, 'id' | 'createdAt'> = {
     }
   ],
   aiBehavior: 'standard',
-  consentText: 'Welcome to The Adaptive Self study.\n\nBefore we begin, please understand you will be interviewed by an AI research assistant, not a human.\n\nThe purpose is to understand your personal thoughts and experiences regarding AI and your career. There are no right or wrong answers—we\'re interested in nuance: your hopes, anxieties, and honest reflections.\n\nYour responses will be anonymized and analyzed for research themes. You may decline any question or end the session anytime.\n\nBy proceeding, you acknowledge you\'re interacting with an AI and consent to this conversation being collected for research purposes.'
+  consentText: 'Welcome to The Adaptive Self study.\n\nBefore we begin, please understand you will be interviewed by an AI research assistant, not a human.\n\nThe purpose is to understand your personal thoughts and experiences regarding AI and your career. There are no right or wrong answers—we\'re interested in nuance: your hopes, anxieties, and honest reflections.\n\nYour responses will be anonymized and analyzed for research themes. You may decline any question or end the session anytime.\n\nBy proceeding, you acknowledge you\'re interacting with an AI and consent to this conversation being collected for research purposes.',
+  _id: ''
 };
 
 // Initial question progress state

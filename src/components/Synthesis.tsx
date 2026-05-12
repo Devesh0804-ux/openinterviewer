@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useStore } from '@/store';
-import { synthesizeInterview } from '@/services/geminiService';
+import { synthesizeInterview } from '@/services/mistralService';
 import { saveCompletedInterview } from '@/services/storageService';
 import {
   Loader2,
@@ -30,7 +30,8 @@ const Synthesis: React.FC = () => {
     synthesis,
     setSynthesis,
     setStep,
-    participantToken
+    participantToken,
+    viewMode
   } = useStore();
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -46,15 +47,17 @@ const Synthesis: React.FC = () => {
 
   // Extract save logic into a reusable function for retry
   const doSave = async (synthesisToSave: typeof synthesis) => {
-    if (!studyConfig || !synthesisToSave) return;
+    if (!studyConfig) return;
 
     setIsSaving(true);
     setSaveStatus('pending');
     try {
-      const interviewId = participantProfile?.id || `interview-${Date.now()}`;
+      const interviewId = participantProfile?.id || crypto.randomUUID();
       const saveResult = await saveCompletedInterview({
         id: interviewId,
-        studyId: studyConfig.id,
+        history: interviewHistory,
+        messages: interviewHistory,
+        studyId: studyConfig.id || String(studyConfig._id),
         studyName: studyConfig.name,
         participantProfile: participantProfile || {
           id: interviewId,
@@ -66,9 +69,12 @@ const Synthesis: React.FC = () => {
         synthesis: synthesisToSave,
         behaviorData: behaviorData,
         createdAt: participantProfile?.timestamp || Date.now()
-      }, participantToken);
+      } as any, participantToken);
 
       setSaveStatus(saveResult.success ? 'saved' : 'failed');
+      if (saveResult.success) {
+        window.dispatchEvent(new Event("interviewCompleted"));
+      }
     } catch (error) {
       console.error('Error saving interview:', error);
       setSaveStatus('failed');
@@ -111,6 +117,11 @@ const Synthesis: React.FC = () => {
 
       setIsAnalyzing(true);
       try {
+        // Save transcript first (prevents data loss)
+        if (saveStatus === null) {
+          await doSave(null);
+        }
+
         const result = await synthesizeInterview(
           interviewHistory,
           studyConfig,
@@ -118,9 +129,10 @@ const Synthesis: React.FC = () => {
           participantProfile,
           participantToken
         );
+
         setSynthesis(result);
 
-        // Save interview to KV after synthesis completes
+        // Save again with synthesis
         await doSave(result);
       } catch (error) {
         console.error('Error synthesizing interview:', error);
@@ -148,6 +160,15 @@ const Synthesis: React.FC = () => {
     router.push('/export');
   };
 
+  // 🔒 Hide analytics for participants
+  if (viewMode !== 'researcher') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-stone-900 text-white px-4 text-center">
+        <p>Thank you for completing the interview.</p>
+      </div>
+    );
+  }
+
   if (!studyConfig) {
     return (
       <div className="min-h-screen bg-stone-900 flex items-center justify-center">
@@ -157,20 +178,20 @@ const Synthesis: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-stone-900 p-8">
-      <div className="max-w-4xl mx-auto">
+    <div className="min-h-screen bg-stone-900 px-4 py-5 sm:p-6 lg:p-8">
+      <div className="w-full max-w-4xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-stone-700 flex items-center justify-center">
+          <div className="flex items-center gap-3 mb-2 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-stone-700 flex items-center justify-center flex-shrink-0">
               <BarChart3 className="text-stone-300" size={20} />
             </div>
-            <h1 className="text-3xl font-bold text-white">Interview Analysis</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold leading-tight text-white break-words">Interview Analysis</h1>
           </div>
-          <p className="text-stone-400 ml-13">
+          <p className="text-stone-400 sm:ml-13">
             Patterns and insights from the conversation
           </p>
         </motion.div>
@@ -179,7 +200,7 @@ const Synthesis: React.FC = () => {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="bg-stone-800/50 rounded-xl border border-stone-700 p-12 text-center"
+            className="bg-stone-800/50 rounded-xl border border-stone-700 p-6 sm:p-12 text-center"
           >
             <Loader2 size={48} className="animate-spin text-stone-400 mx-auto mb-4" />
             <h2 className="text-xl font-semibold text-white mb-2">
@@ -203,7 +224,7 @@ const Synthesis: React.FC = () => {
               </div>
             )}
             {saveStatus === 'failed' && (
-              <div className="bg-yellow-900/30 border border-yellow-700 text-yellow-300 rounded-xl p-4 flex items-center justify-between">
+              <div className="bg-yellow-900/30 border border-yellow-700 text-yellow-300 rounded-xl p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <XCircle size={20} />
                   <span>Could not save interview. You can still export locally below.</span>
@@ -211,7 +232,7 @@ const Synthesis: React.FC = () => {
                 <button
                   onClick={handleRetrySave}
                   disabled={isSaving}
-                  className="px-3 py-1.5 bg-yellow-700 hover:bg-yellow-600 text-yellow-100 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
+                  className="w-full sm:w-auto px-3 py-1.5 bg-yellow-700 hover:bg-yellow-600 text-yellow-100 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {isSaving ? (
                     <Loader2 size={14} className="animate-spin" />
@@ -230,19 +251,19 @@ const Synthesis: React.FC = () => {
             )}
 
             {/* Bottom Line */}
-            <div className="bg-stone-700 text-white rounded-xl p-6">
+            <div className="bg-stone-700 text-white rounded-xl p-4 sm:p-6">
               <div className="flex items-center gap-2 mb-2 text-stone-400">
                 <Target size={18} />
                 <span className="text-sm font-medium uppercase tracking-wider">
                   Key Insight
                 </span>
               </div>
-              <p className="text-xl font-medium">{synthesis.bottomLine}</p>
+              <p className="text-lg sm:text-xl font-medium break-words">{synthesis.bottomLine}</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Stated vs Revealed */}
-              <div className="bg-stone-800/50 rounded-xl border border-stone-700 p-6">
+              <div className="bg-stone-800/50 rounded-xl border border-stone-700 p-4 sm:p-6">
                 <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
                   <TrendingUp size={18} className="text-stone-400" />
                   Stated vs Revealed
@@ -284,7 +305,7 @@ const Synthesis: React.FC = () => {
               </div>
 
               {/* Themes */}
-              <div className="bg-stone-800/50 rounded-xl border border-stone-700 p-6">
+              <div className="bg-stone-800/50 rounded-xl border border-stone-700 p-4 sm:p-6">
                 <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
                   <Lightbulb size={18} className="text-stone-400" />
                   Key Themes
@@ -303,7 +324,7 @@ const Synthesis: React.FC = () => {
 
             {/* Contradictions */}
             {synthesis.contradictions.length > 0 && (
-              <div className="bg-stone-800 border border-stone-600 rounded-xl p-6">
+              <div className="bg-stone-800 border border-stone-600 rounded-xl p-4 sm:p-6">
                 <h3 className="font-semibold text-stone-200 mb-3 flex items-center gap-2">
                   <AlertTriangle size={18} className="text-stone-400" />
                   Potential Contradictions
@@ -319,7 +340,7 @@ const Synthesis: React.FC = () => {
             )}
 
             {/* Key Insights */}
-            <div className="bg-stone-800/50 rounded-xl border border-stone-700 p-6">
+            <div className="bg-stone-800/50 rounded-xl border border-stone-700 p-4 sm:p-6">
               <h3 className="font-semibold text-white mb-4">
                 Additional Insights
               </h3>
@@ -337,10 +358,10 @@ const Synthesis: React.FC = () => {
             </div>
 
             {/* Actions */}
-            <div className="flex gap-3 pt-4">
+            <div className="flex flex-col sm:flex-row gap-3 pt-4">
               <button
                 onClick={handleBack}
-                className="px-6 py-3 border border-stone-600 text-stone-400 rounded-xl hover:bg-stone-700 transition-colors flex items-center gap-2"
+                className="px-6 py-3 border border-stone-600 text-stone-400 rounded-xl hover:bg-stone-700 transition-colors flex items-center justify-center gap-2"
               >
                 <ArrowLeft size={18} /> Continue Interview
               </button>
@@ -356,7 +377,7 @@ const Synthesis: React.FC = () => {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="bg-stone-800/50 rounded-xl border border-stone-700 p-12 text-center"
+            className="bg-stone-800/50 rounded-xl border border-stone-700 p-6 sm:p-12 text-center"
           >
             <div className="w-16 h-16 rounded-full bg-red-900/30 flex items-center justify-center mx-auto mb-4">
               <AlertTriangle size={32} className="text-red-400" />
@@ -367,7 +388,7 @@ const Synthesis: React.FC = () => {
             <p className="text-stone-400 mb-6">
               There was an error analyzing the interview. Please try again.
             </p>
-            <div className="flex gap-3 justify-center">
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <button
                 onClick={handleBack}
                 className="px-6 py-3 border border-stone-600 text-stone-400 rounded-xl hover:bg-stone-700 transition-colors"
@@ -376,7 +397,7 @@ const Synthesis: React.FC = () => {
               </button>
               <button
                 onClick={handleRetryAnalysis}
-                className="px-6 py-3 bg-stone-600 hover:bg-stone-500 text-white font-medium rounded-xl transition-colors flex items-center gap-2"
+                className="px-6 py-3 bg-stone-600 hover:bg-stone-500 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 <RefreshCw size={18} />
                 Retry Analysis
@@ -384,7 +405,7 @@ const Synthesis: React.FC = () => {
             </div>
           </motion.div>
         ) : (
-          <div className="bg-stone-800/50 rounded-xl border border-stone-700 p-12 text-center">
+          <div className="bg-stone-800/50 rounded-xl border border-stone-700 p-6 sm:p-12 text-center">
             <p className="text-stone-400">
               No interview data to analyze yet.
             </p>

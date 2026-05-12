@@ -140,38 +140,38 @@ const StudyList: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-stone-900 p-8">
-      <div className="max-w-5xl mx-auto">
+    <div className="min-h-screen bg-stone-900 px-4 py-5 sm:p-6 lg:p-8">
+      <div className="w-full max-w-5xl mx-auto">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-stone-700 flex items-center justify-center">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-stone-700 flex items-center justify-center flex-shrink-0">
                 <BookOpen className="text-stone-300" size={20} />
               </div>
-              <div>
-                <h1 className="text-3xl font-bold text-white">My Studies</h1>
+              <div className="min-w-0">
+                <h1 className="text-2xl sm:text-3xl font-bold leading-tight text-white break-words">My Studies</h1>
                 <p className="text-stone-400">
                   {studies.length} {studies.length === 1 ? 'study' : 'studies'}
                 </p>
               </div>
             </div>
 
-            <div className="flex gap-3">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap lg:justify-end">
               <button
                 onClick={() => router.push('/setup')}
-                className="px-4 py-2 text-sm bg-stone-600 hover:bg-stone-500 text-white rounded-xl transition-colors flex items-center gap-2"
+                className="px-3 sm:px-4 py-2 text-sm bg-stone-600 hover:bg-stone-500 text-white rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 <Plus size={16} />
                 Create Study
               </button>
               <button
                 onClick={() => router.push('/dashboard')}
-                className="px-4 py-2 text-sm bg-stone-700 hover:bg-stone-600 text-stone-300 rounded-xl transition-colors flex items-center gap-2"
+                className="px-3 sm:px-4 py-2 text-sm bg-stone-700 hover:bg-stone-600 text-stone-300 rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 <Users size={16} />
                 All Interviews
@@ -180,7 +180,7 @@ const StudyList: React.FC = () => {
                 <button
                   onClick={handleClearDemo}
                   disabled={loadingDemo}
-                  className="px-4 py-2 text-sm border border-amber-700/50 text-amber-400 hover:bg-amber-900/30 rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50"
+                  className="px-3 sm:px-4 py-2 text-sm border border-amber-700/50 text-amber-400 hover:bg-amber-900/30 rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {loadingDemo ? <Loader2 size={16} className="animate-spin" /> : <Database size={16} />}
                   Clear Demo
@@ -189,7 +189,7 @@ const StudyList: React.FC = () => {
                 <button
                   onClick={handleLoadDemo}
                   disabled={loadingDemo || !!kvWarning}
-                  className="px-4 py-2 text-sm border border-purple-700/50 text-purple-400 hover:bg-purple-900/30 rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50"
+                  className="px-3 sm:px-4 py-2 text-sm border border-purple-700/50 text-purple-400 hover:bg-purple-900/30 rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {loadingDemo ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
                   Load Demo
@@ -197,7 +197,7 @@ const StudyList: React.FC = () => {
               )}
               <button
                 onClick={handleLogout}
-                className="px-4 py-2 text-sm border border-stone-600 text-stone-400 hover:bg-stone-700 rounded-xl transition-colors flex items-center gap-2"
+                className="px-3 sm:px-4 py-2 text-sm border border-stone-600 text-stone-400 hover:bg-stone-700 rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 <LogOut size={16} />
                 Logout
@@ -206,7 +206,7 @@ const StudyList: React.FC = () => {
           </div>
         </motion.div>
 
-        {/* KV Warning Banner */}
+        {/* Storage Warning Banner */}
         {kvWarning && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
@@ -215,10 +215,10 @@ const StudyList: React.FC = () => {
           >
             <AlertTriangle size={20} className="text-amber-400 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
-              <h4 className="font-medium text-amber-300 mb-1">Storage Not Configured</h4>
+              <h4 className="font-medium text-amber-300 mb-1">MongoDB Not Connected</h4>
               <p className="text-sm text-amber-400/80">{kvWarning}</p>
               <p className="text-sm text-amber-400/60 mt-2">
-                See the README for setup instructions using Vercel KV (Upstash Redis).
+                Use your Atlas database user's real password in MONGODB_URI, not your MongoDB website login password.
               </p>
             </div>
           </motion.div>
@@ -261,7 +261,7 @@ const StudyList: React.FC = () => {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-stone-800/50 rounded-2xl border border-stone-700 p-12 text-center"
+            className="bg-stone-800/50 rounded-2xl border border-stone-700 p-6 sm:p-12 text-center"
           >
             <div className="w-16 h-16 rounded-full bg-stone-800 flex items-center justify-center mx-auto mb-4">
               <BookOpen size={32} className="text-stone-500" />
@@ -270,7 +270,7 @@ const StudyList: React.FC = () => {
             <p className="text-stone-400 mb-6">
               Create your first study or load demo data to explore the platform.
             </p>
-            <div className="flex items-center justify-center gap-4">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 sm:gap-4">
               <button
                 onClick={() => router.push('/setup')}
                 className="px-6 py-3 bg-stone-600 hover:bg-stone-500 text-white rounded-xl transition-colors flex items-center gap-2"
@@ -300,14 +300,14 @@ const StudyList: React.FC = () => {
             )}
           </motion.div>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {studies.map((study, index) => (
               <motion.div
                 key={study.id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
-                className="bg-stone-800/50 rounded-xl border border-stone-700 p-6 hover:border-stone-500 transition-colors relative"
+                className="bg-stone-800/50 rounded-xl border border-stone-700 p-4 sm:p-6 hover:border-stone-500 transition-colors relative"
               >
                 {/* Menu button */}
                 <div className="absolute top-4 right-4">
@@ -364,8 +364,8 @@ const StudyList: React.FC = () => {
                   onClick={() => router.push(`/studies/${study.id}`)}
                 >
                   <div className="flex items-start gap-3 mb-3 pr-8">
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-white text-lg mb-1">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-white text-lg mb-1 break-words">
                         {study.config.name}
                       </h3>
                       {study.config.description && (
@@ -377,7 +377,7 @@ const StudyList: React.FC = () => {
                   </div>
 
                   {/* Stats */}
-                  <div className="flex items-center gap-4 text-sm text-stone-500 mb-3">
+                  <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-sm text-stone-500 mb-3">
                     <div className="flex items-center gap-1">
                       <Users size={14} />
                       <span>{study.interviewCount} interviews</span>
@@ -389,7 +389,7 @@ const StudyList: React.FC = () => {
                   </div>
 
                   {/* Status badges */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className={`px-2 py-1 text-xs rounded-full flex items-center gap-1 ${
                       study.isLocked
                         ? 'bg-stone-700 text-stone-400'

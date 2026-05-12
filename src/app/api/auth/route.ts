@@ -53,6 +53,7 @@ export async function POST(request: Request) {
     cookieStore.set(SESSION_COOKIE_NAME, sessionToken, getSessionCookieOptions());
 
     return NextResponse.json({ success: true });
+    
   } catch (error) {
     console.error('Auth API error:', error);
     return NextResponse.json(

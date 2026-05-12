@@ -30,12 +30,12 @@ export async function GET(request: Request) {
       );
     }
 
-    // Check if KV is available
-    const kvAvailable = await isKVAvailable();
-    if (!kvAvailable) {
+    const storageAvailable = await isKVAvailable();
+    if (!storageAvailable) {
       return NextResponse.json({
         interviews: [],
-        warning: 'Storage not configured. Connect Vercel KV to enable persistence.'
+        count: 0,
+        warning: 'Storage not configured. Set MONGODB_URI to enable persistence.'
       });
     }
 
@@ -48,7 +48,11 @@ export async function GET(request: Request) {
       ? await getStudyInterviews(studyId)
       : await getAllInterviews();
 
-    return NextResponse.json({ interviews });
+    return NextResponse.json({
+      interviews,
+      count: interviews.length
+    });
+
   } catch (error) {
     console.error('Interviews API error:', error);
     return NextResponse.json(

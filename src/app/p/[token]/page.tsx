@@ -38,19 +38,17 @@ export default function ParticipantPage() {
 
       try {
         // Verify and decode the token
-        const response = await fetch(`/api/generate-link?token=${encodeURIComponent(token)}`);
+        const response = await fetch(`/api/participant-token?token=${encodeURIComponent(token)}`);
         const result = await response.json();
 
-        if (!result.valid || !result.data) {
+        if (!result.valid || !result.studyConfig) {
           setError('Invalid or expired link');
           setLoading(false);
           return;
         }
 
-        const tokenData = result.data as ParticipantToken;
-
-        // Set the study config from token
-        setStudyConfig(tokenData.studyConfig);
+        // Directly use studyConfig from response
+        setStudyConfig(result.studyConfig);
         setParticipantToken(token);
         setViewMode('participant');
         setStep('consent');
@@ -68,10 +66,10 @@ export default function ParticipantPage() {
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-stone-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 text-center">
         <div className="text-center">
-          <Loader2 size={48} className="animate-spin text-stone-400 mx-auto mb-4" />
-          <p className="text-stone-400">Loading interview...</p>
+          <Loader2 size={48} className="animate-spin text-gray-600 mx-auto mb-4" />
+          <p className="text-gray-600">Loading interview...</p>
         </div>
       </div>
     );
@@ -80,14 +78,14 @@ export default function ParticipantPage() {
   // Error state
   if (error) {
     return (
-      <div className="min-h-screen bg-stone-900 flex items-center justify-center p-8">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-5 sm:p-8">
         <div className="max-w-md text-center">
-          <div className="w-16 h-16 rounded-full bg-stone-800 flex items-center justify-center mx-auto mb-4">
+          <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
             <span className="text-2xl">⚠️</span>
           </div>
-          <h1 className="text-xl font-semibold text-white mb-2">Unable to Load Interview</h1>
-          <p className="text-stone-400 mb-6">{error}</p>
-          <p className="text-stone-500 text-sm">
+          <h1 className="text-xl font-semibold text-gray-900 mb-2">Unable to Load Interview</h1>
+          <p className="text-gray-600 mb-6">{error}</p>
+          <p className="text-gray-600 text-sm">
             Please check that you have the correct link or contact the researcher.
           </p>
         </div>
@@ -98,8 +96,8 @@ export default function ParticipantPage() {
   // No study config loaded
   if (!studyConfig) {
     return (
-      <div className="min-h-screen bg-stone-900 flex items-center justify-center">
-        <p className="text-stone-400">Study configuration not found.</p>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 text-center">
+        <p className="text-gray-600">Study configuration not found.</p>
       </div>
     );
   }

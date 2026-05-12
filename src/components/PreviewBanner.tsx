@@ -25,14 +25,14 @@ export default function PreviewBanner() {
   };
 
   return (
-    <div className="preview-banner sticky top-0 z-50 px-4 py-2 flex items-center justify-between">
+    <div className="preview-banner sticky top-0 z-50 px-3 sm:px-4 py-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-center gap-2 text-stone-300">
         <Eye size={16} className="preview-banner-pulse" />
         <span className="text-sm font-medium">Preview Mode - Participant View</span>
       </div>
       <button
         onClick={handleExit}
-        className="flex items-center gap-1 px-3 py-1.5 text-sm text-stone-400 hover:text-stone-100 bg-stone-700/50 hover:bg-stone-700 rounded-lg transition-colors"
+        className="flex items-center justify-center gap-1 px-3 py-1.5 text-sm text-stone-400 hover:text-stone-100 bg-stone-700/50 hover:bg-stone-700 rounded-lg transition-colors"
       >
         <ArrowLeft size={14} />
         Exit Preview

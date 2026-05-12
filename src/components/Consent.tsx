@@ -28,14 +28,14 @@ const Consent: React.FC = () => {
 
   if (!studyConfig) {
     return (
-      <div className="min-h-screen bg-stone-900 flex items-center justify-center">
+      <div className="min-h-screen bg-stone-900 flex items-center justify-center px-4 text-center">
         <p className="text-stone-400">No study configured. Please set up a study first.</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-stone-900 flex items-center justify-center p-8">
+    <div className="min-h-screen bg-stone-900 flex items-center justify-center px-4 py-5 sm:p-8">
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -43,10 +43,10 @@ const Consent: React.FC = () => {
       >
         <div className="bg-stone-800/50 rounded-xl border border-stone-700 overflow-hidden">
           {/* Header */}
-          <div className="bg-stone-700 p-6">
+          <div className="bg-stone-700 p-4 sm:p-6">
             <div className="flex items-center gap-3 mb-2">
               <Shield size={28} className="text-stone-300" />
-              <h1 className="text-2xl font-bold text-white">Research Consent</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-white">Research Consent</h1>
             </div>
             <p className="text-stone-400 text-sm">
               {studyConfig.name}
@@ -54,7 +54,7 @@ const Consent: React.FC = () => {
           </div>
 
           {/* Content */}
-          <div className="p-6 space-y-6">
+          <div className="p-4 sm:p-6 space-y-6">
             <div className="prose prose-sm max-w-none text-stone-300">
               <p className="whitespace-pre-wrap">{studyConfig.consentText}</p>
             </div>
@@ -78,7 +78,7 @@ const Consent: React.FC = () => {
                 <div className="flex items-start gap-3">
                   <div className="w-6 h-6 rounded-full bg-stone-700 flex items-center justify-center text-xs text-stone-400 flex-shrink-0 mt-0.5">2</div>
                   <div>
-                    <div className="text-stone-200">{studyConfig.coreQuestions.length} core questions about your experiences</div>
+                    <div className="text-stone-200">{studyConfig?.coreQuestions?.length ?? 0} core questions about your experiences</div>
                     <div className="text-stone-500 text-xs">The heart of the interview</div>
                   </div>
                 </div>
@@ -115,11 +115,11 @@ const Consent: React.FC = () => {
           </div>
 
           {/* Actions */}
-          <div className="p-6 pt-0 flex gap-3">
+          <div className="p-4 sm:p-6 pt-0 flex flex-col sm:flex-row gap-3">
             {viewMode !== 'participant' && (
               <button
                 onClick={handleBack}
-                className="px-6 py-3 border border-stone-600 text-stone-400 rounded-xl hover:bg-stone-700 transition-colors flex items-center gap-2"
+                className="px-6 py-3 border border-stone-600 text-stone-400 rounded-xl hover:bg-stone-700 transition-colors flex items-center justify-center gap-2"
               >
                 <ArrowLeft size={18} /> Back
               </button>

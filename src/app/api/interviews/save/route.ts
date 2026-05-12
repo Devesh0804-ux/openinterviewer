@@ -3,7 +3,7 @@
 // Server-side validation ensures data integrity
 
 import { NextResponse } from 'next/server';
-import { saveInterview, isKVAvailable, incrementStudyInterviewCount, lockStudy } from '@/lib/kv';
+import { saveInterview, isMongoStorageAvailable, incrementStudyInterviewCount, lockStudy } from '@/lib/kv';
 import { verifyParticipantToken } from '@/lib/auth';
 import { StoredInterview } from '@/types';
 
@@ -20,6 +20,15 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const clientData = body as Partial<StoredInterview>;
+    // Fix studyId if frontend sends _id
+    if (!clientData.studyId && (clientData as any)._id) {
+      clientData.studyId = String((clientData as any)._id);
+    }
+
+    // Ensure interview ID exists (server-side safety)
+    if (!clientData.id) {
+      clientData.id = crypto.randomUUID();
+    }
 
     // Validate studyId matches the token's studyId (skip for admin sessions)
     if (!auth.isAdmin && auth.studyId && clientData.studyId && auth.studyId !== clientData.studyId) {
@@ -29,16 +38,21 @@ export async function POST(request: Request) {
       );
     }
 
-    // Validate required fields exist
-    if (!clientData.id || !clientData.studyId || !clientData.transcript) {
+    // allow transcript OR messages OR history
+    const transcript =
+      clientData.transcript ||
+      clientData.messages ||
+      clientData.history;
+
+    if (!clientData.id || !clientData.studyId || !transcript) {
       return NextResponse.json(
-        { error: 'Missing required fields: id, studyId, transcript' },
+        { error: 'Missing required fields: id, studyId, transcript/messages/history' },
         { status: 400 }
       );
     }
 
     // Validate transcript is a non-empty array
-    if (!Array.isArray(clientData.transcript) || clientData.transcript.length === 0) {
+    if (!Array.isArray(transcript) || transcript.length === 0) {
       return NextResponse.json(
         { error: 'Invalid transcript: must be a non-empty array' },
         { status: 400 }
@@ -74,7 +88,7 @@ export async function POST(request: Request) {
       studyId: clientData.studyId,
       studyName: clientData.studyName || 'Unknown Study',
       participantProfile: clientData.participantProfile || defaultProfile,
-      transcript: clientData.transcript,
+      transcript,
       synthesis: clientData.synthesis || null,
       behaviorData: clientData.behaviorData || {
         timePerTopic: {},
@@ -82,47 +96,45 @@ export async function POST(request: Request) {
         topicsExplored: [],
         contradictions: []
       },
-      // Server-controlled timestamps - don't trust client-provided values
       createdAt: clientData.createdAt && clientData.createdAt < now
-        ? clientData.createdAt  // Accept if in the past (reasonable)
+        ? clientData.createdAt
         : now,
-      completedAt: now,  // Always server-generated
-      status: 'completed'  // Always set by server
+      completedAt: now,
+      status: 'completed',
+
+      history: undefined,
+      messages: undefined,
+      _id: ''
     };
 
-    // Check if KV is available
-    const kvAvailable = await isKVAvailable();
-    if (!kvAvailable) {
-      // Return success but with warning
-      console.warn('KV not available. Interview not persisted.');
-      return NextResponse.json({
-        success: false,
-        id: interview.id,
-        warning: 'Storage not configured. Interview not persisted.'
-      });
+    const storageAvailable = await isMongoStorageAvailable();
+    if (!storageAvailable) {
+      return NextResponse.json(
+        { error: 'MongoDB is not connected. Fix MONGODB_URI before saving interviews.' },
+        { status: 503 }
+      );
     }
 
-    // Save the interview
-    const success = await saveInterview(interview);
-
-    if (!success) {
+    const saved = await saveInterview(interview);
+    if (!saved) {
       return NextResponse.json(
         { error: 'Failed to save interview' },
         { status: 500 }
       );
     }
 
-    // Update study metadata (increment count and lock if first interview)
-    // These operations are non-critical - don't fail the request if they fail
     try {
       await incrementStudyInterviewCount(interview.studyId);
       await lockStudy(interview.studyId);
     } catch (studyUpdateError) {
-      // Log but don't fail - study may not exist in KV (legacy/token-only studies)
       console.warn('Failed to update study metadata:', studyUpdateError);
     }
 
-    return NextResponse.json({ success: true, id: interview.id });
+    return NextResponse.json({
+      success: true,
+      id: interview.id
+    });
+
   } catch (error) {
     console.error('Save interview API error:', error);
     return NextResponse.json(

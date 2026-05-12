@@ -4,8 +4,20 @@ import React, { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useStore } from '@/store';
-import { generateParticipantLink } from '@/services/geminiService';
-import { StudyConfig, ProfileField, AIBehavior, AIProviderType, LinkExpirationOption, GEMINI_MODELS, CLAUDE_MODELS, DEFAULT_GEMINI_MODEL, DEFAULT_CLAUDE_MODEL } from '@/types';
+import {
+  StudyConfig,
+  ProfileField,
+  AIBehavior,
+  AIProviderType,
+  LinkExpirationOption,
+  GEMINI_MODELS,
+  CLAUDE_MODELS,
+  MISTRAL_MODELS,
+  DEFAULT_GEMINI_MODEL,
+  DEFAULT_CLAUDE_MODEL,
+  DEFAULT_MISTRAL_MODEL
+} from '@/types';
+
 import {
   FileText,
   Plus,
@@ -33,17 +45,43 @@ import {
 
 // Common profile field presets
 const PROFILE_PRESETS: ProfileField[] = [
-  { id: 'role', label: 'Current Role', extractionHint: 'Their job title or position', required: true },
-  { id: 'industry', label: 'Industry', extractionHint: 'The industry they work in', required: false },
-  { id: 'experience', label: 'Years of Experience', extractionHint: 'How many years in their field', required: false },
-  { id: 'team_size', label: 'Team Size', extractionHint: 'Size of team they work with', required: false },
-  { id: 'location', label: 'Location', extractionHint: 'Where they are based (city/region)', required: false }
+  {
+    id: 'role',
+    label: 'Current Role',
+    extractionHint: 'Their job title or position',
+    required: true
+  },
+  {
+    id: 'industry',
+    label: 'Industry',
+    extractionHint: 'The industry they work in',
+    required: true
+  },
+  {
+    id: 'years_experience',
+    label: 'Years of Experience',
+    extractionHint: 'How many years of professional experience they have',
+    required: true
+  },
+  {
+    id: 'ai_frequency',
+    label: 'AI Usage Frequency',
+    extractionHint: 'How often they use AI (daily, weekly, rarely, etc.)',
+    required: false
+  },
+  {
+    id: 'comfort_level',
+    label: 'Comfort Level with AI',
+    extractionHint: 'How comfortable they feel using AI (low, medium, high)',
+    required: false
+  }
 ];
+
 
 const StudySetup: React.FC = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { setStudyConfig, setStep, studyConfig, loadExampleStudy, setViewMode, setParticipantToken } = useStore();
+  const { setStudyConfig, setStep, studyConfig, loadExampleStudy, setViewMode, setParticipantToken, viewMode } = useStore();
 
   // Follow-up study state
   const [parentStudyInfo, setParentStudyInfo] = useState<{ id: string; name: string } | null>(null);
@@ -52,13 +90,13 @@ const StudySetup: React.FC = () => {
   const [description, setDescription] = useState(studyConfig?.description || '');
   const [researchQuestion, setResearchQuestion] = useState(studyConfig?.researchQuestion || '');
   const [coreQuestions, setCoreQuestions] = useState<string[]>(
-    studyConfig?.coreQuestions || ['']
+    studyConfig?.coreQuestions || []
   );
   const [topicAreas, setTopicAreas] = useState<string[]>(
     studyConfig?.topicAreas || ['']
   );
   const [profileSchema, setProfileSchema] = useState<ProfileField[]>(
-    studyConfig?.profileSchema || []
+    studyConfig?.profileSchema || PROFILE_PRESETS
   );
   const [aiBehavior, setAiBehavior] = useState<AIBehavior>(
     studyConfig?.aiBehavior || 'standard'
@@ -67,7 +105,12 @@ const StudySetup: React.FC = () => {
     studyConfig?.aiProvider || 'gemini'
   );
   const [aiModel, setAiModel] = useState<string>(
-    studyConfig?.aiModel || (studyConfig?.aiProvider === 'claude' ? DEFAULT_CLAUDE_MODEL : DEFAULT_GEMINI_MODEL)
+    studyConfig?.aiModel ||
+      (studyConfig?.aiProvider === 'claude'
+        ? DEFAULT_CLAUDE_MODEL
+        : studyConfig?.aiProvider === 'mistral'
+        ? DEFAULT_MISTRAL_MODEL
+        : DEFAULT_GEMINI_MODEL)
   );
   const [enableReasoning, setEnableReasoning] = useState<boolean | undefined>(
     studyConfig?.enableReasoning
@@ -103,7 +146,9 @@ const StudySetup: React.FC = () => {
   const [configStatus, setConfigStatus] = useState<{
     hasAnthropicKey: boolean;
     hasGeminiKey: boolean;
+    hasMistralKey: boolean;
   } | null>(null);
+
 
   // Sync savedStudyId with persisted config
   // Server-assigned IDs are UUIDs, client-side IDs start with "study-"
@@ -205,12 +250,19 @@ const StudySetup: React.FC = () => {
       setName(studyConfig.name);
       setDescription(studyConfig.description);
       setResearchQuestion(studyConfig.researchQuestion);
-      setCoreQuestions(studyConfig.coreQuestions.length > 0 ? studyConfig.coreQuestions : ['']);
+      setCoreQuestions(studyConfig.coreQuestions || []);
       setTopicAreas(studyConfig.topicAreas.length > 0 ? studyConfig.topicAreas : ['']);
       setProfileSchema(studyConfig.profileSchema || []);
       setAiBehavior(studyConfig.aiBehavior);
       setAiProvider(studyConfig.aiProvider || 'gemini');
-      setAiModel(studyConfig.aiModel || (studyConfig.aiProvider === 'claude' ? DEFAULT_CLAUDE_MODEL : DEFAULT_GEMINI_MODEL));
+      setAiModel(
+      studyConfig.aiModel ||
+        (studyConfig.aiProvider === 'claude'
+          ? DEFAULT_CLAUDE_MODEL
+          : studyConfig.aiProvider === 'mistral'
+          ? DEFAULT_MISTRAL_MODEL
+          : DEFAULT_GEMINI_MODEL)
+    );
       setEnableReasoning(studyConfig.enableReasoning);
       setLinkExpiration(studyConfig.linkExpiration || 'never');
       setConsentText(studyConfig.consentText);
@@ -220,10 +272,8 @@ const StudySetup: React.FC = () => {
   // Question management
   const addQuestion = () => { setCoreQuestions([...coreQuestions, '']); setIsDirty(true); };
   const removeQuestion = (index: number) => {
-    if (coreQuestions.length > 1) {
-      setCoreQuestions(coreQuestions.filter((_, i) => i !== index));
-      setIsDirty(true);
-    }
+    setCoreQuestions(coreQuestions.filter((_, i) => i !== index));
+    setIsDirty(true);
   };
   const updateQuestion = (index: number, value: string) => {
     const updated = [...coreQuestions];
@@ -306,7 +356,8 @@ const StudySetup: React.FC = () => {
       parentStudyId: parentStudyInfo.id,
       parentStudyName: parentStudyInfo.name,
       generatedFrom: 'synthesis' as const
-    })
+    }),
+    _id: ''
   });
 
   const handleSubmit = () => {
@@ -322,14 +373,6 @@ const StudySetup: React.FC = () => {
     setStudyConfig(config);
 
     // Generate a temporary preview token for API authentication
-    try {
-      const { token } = await generateParticipantLink(config);
-      setParticipantToken(token);
-    } catch (error) {
-      // If token generation fails (e.g., not logged in), proceed anyway
-      // The admin session cookie will be used as fallback for authenticated researchers
-      console.warn('Could not generate preview token, using session auth:', error);
-    }
 
     setIsPreviewLoading(false);
     setViewMode('participant');
@@ -416,7 +459,7 @@ const StudySetup: React.FC = () => {
 
         // Handle storage not configured (503)
         if (response.status === 503) {
-          setSaveError('Storage not configured. Please connect Vercel KV (Upstash Redis) in your deployment settings.');
+          setSaveError('Storage not configured. Please set MONGODB_URI in your environment.');
           return;
         }
 
@@ -490,7 +533,7 @@ const StudySetup: React.FC = () => {
     }
   ];
 
-  const providerOptions: { id: AIProviderType; label: string; desc: string }[] = [
+   const providerOptions: { id: AIProviderType; label: string; desc: string }[] = [
     {
       id: 'gemini',
       label: 'Google Gemini',
@@ -500,22 +543,29 @@ const StudySetup: React.FC = () => {
       id: 'claude',
       label: 'Anthropic Claude',
       desc: 'Nuanced reasoning. Best for complex, exploratory interviews.'
+    },
+    {
+      id: 'mistral',
+      label: 'Mistral AI',
+      desc: 'Open-weight models. Balanced performance and cost.'
     }
   ];
+
 
   const availablePresets = PROFILE_PRESETS.filter(
     preset => !profileSchema.some(f => f.id === preset.id)
   );
 
   return (
-    <div className="min-h-screen bg-stone-900 p-8">
-      <div className="max-w-3xl mx-auto">
+    <div className="min-h-screen bg-stone-900 px-4 py-5 sm:p-6 lg:p-8">
+      <div className="w-full max-w-3xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
-          <div className="flex items-center gap-3 mb-2">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center mb-2">
+            <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => router.push('/studies')}
               className="p-2 text-stone-400 hover:text-stone-300 rounded-lg hover:bg-stone-800 transition-colors"
@@ -523,15 +573,16 @@ const StudySetup: React.FC = () => {
             >
               <ArrowLeft size={20} />
             </button>
-            <div className="w-10 h-10 rounded-xl bg-stone-700 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-stone-700 flex items-center justify-center flex-shrink-0">
               <FileText className="text-stone-300" size={20} />
             </div>
-            <h1 className="text-3xl font-bold text-white">Study Setup</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold leading-tight text-white break-words">Study Setup</h1>
+            </div>
 
-            <div className="flex gap-2 ml-auto">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:ml-auto">
               <button
                 onClick={loadExampleStudy}
-                className="px-4 py-2 text-sm bg-stone-700 hover:bg-stone-600 text-stone-300 rounded-xl transition-colors flex items-center gap-2"
+                className="px-3 sm:px-4 py-2 text-sm bg-stone-700 hover:bg-stone-600 text-stone-300 rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 <Lightbulb size={16} />
                 Load Example
@@ -541,7 +592,7 @@ const StudySetup: React.FC = () => {
                   <button
                     onClick={handleSaveStudy}
                     disabled={!isAuthenticated || isSaving || (!!savedStudyId && !isDirty)}
-                    className={`px-4 py-2 text-sm rounded-xl transition-colors flex items-center gap-2 disabled:cursor-not-allowed ${
+                    className={`px-3 sm:px-4 py-2 text-sm rounded-xl transition-colors flex items-center justify-center gap-2 disabled:cursor-not-allowed ${
                       savedStudyId && !isDirty
                         ? 'bg-green-900/50 text-green-400 border border-green-700'
                         : saveSuccess
@@ -563,7 +614,7 @@ const StudySetup: React.FC = () => {
                   <button
                     onClick={handlePreview}
                     disabled={isPreviewLoading}
-                    className="px-4 py-2 text-sm bg-stone-700 hover:bg-stone-600 text-stone-300 rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-3 sm:px-4 py-2 text-sm bg-stone-700 hover:bg-stone-600 text-stone-300 rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isPreviewLoading ? (
                       <Loader2 size={16} className="animate-spin" />
@@ -576,7 +627,7 @@ const StudySetup: React.FC = () => {
               )}
             </div>
           </div>
-          <p className="text-stone-400 ml-[52px]">
+          <p className="text-stone-400 sm:ml-[52px]">
             Configure your research interview study
           </p>
         </motion.div>
@@ -615,7 +666,7 @@ const StudySetup: React.FC = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="bg-stone-800/50 rounded-2xl border border-stone-700 p-8 space-y-8"
+          className="bg-stone-800/50 rounded-2xl border border-stone-700 p-4 sm:p-6 lg:p-8 space-y-8"
         >
           {/* Follow-up Study Banner */}
           {parentStudyInfo && (
@@ -645,7 +696,7 @@ const StudySetup: React.FC = () => {
 
             <div>
               <label className="block text-sm font-medium text-stone-300 mb-1">
-                Study Name *
+                Post Name *
               </label>
               <input
                 type="text"
@@ -658,7 +709,7 @@ const StudySetup: React.FC = () => {
 
             <div>
               <label className="block text-sm font-medium text-stone-300 mb-1">
-                Research Question *
+                Topic *
               </label>
               <textarea
                 value={researchQuestion}
@@ -685,7 +736,7 @@ const StudySetup: React.FC = () => {
 
           {/* Profile Fields */}
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="font-semibold text-lg text-stone-100 flex items-center gap-2">
                 <User size={18} className="text-stone-400" />
                 Profile Fields
@@ -722,8 +773,8 @@ const StudySetup: React.FC = () => {
                   key={field.id}
                   className="bg-stone-800 rounded-xl p-4 border border-stone-700"
                 >
-                  <div className="flex items-start gap-3">
-                    <div className="flex-1 space-y-2">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                    <div className="flex-1 space-y-2 min-w-0">
                       <input
                         type="text"
                         value={field.label}
@@ -739,7 +790,7 @@ const StudySetup: React.FC = () => {
                         className="w-full px-3 py-2 rounded-lg bg-stone-900 border border-stone-600 text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-1 focus:ring-stone-500 text-sm"
                       />
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 sm:flex-shrink-0">
                       <button
                         onClick={() => toggleFieldRequired(field.id)}
                         className={`px-2 py-1 text-xs rounded flex items-center gap-1 ${
@@ -773,7 +824,7 @@ const StudySetup: React.FC = () => {
 
           {/* Core Questions */}
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="font-semibold text-lg text-stone-100">
                 Core Questions
               </h2>
@@ -790,7 +841,7 @@ const StudySetup: React.FC = () => {
             <div className="space-y-2">
               {coreQuestions.map((q, i) => (
                 <div key={i} className="flex gap-2 items-start">
-                  <span className="text-stone-500 text-sm pt-3 w-6 text-right">{i + 1}.</span>
+                  <span className="text-stone-500 text-sm pt-3 w-6 text-right flex-shrink-0">{i + 1}.</span>
                   <textarea
                     value={q}
                     onChange={(e) => updateQuestion(i, e.target.value)}
@@ -813,7 +864,7 @@ const StudySetup: React.FC = () => {
 
           {/* Topic Areas */}
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="font-semibold text-lg text-stone-100">
                 Topic Areas
               </h2>
@@ -830,7 +881,7 @@ const StudySetup: React.FC = () => {
             <div className="space-y-2">
               {topicAreas.map((t, i) => (
                 <div key={i} className="flex gap-2 items-start">
-                  <span className="text-stone-500 text-sm pt-3 w-6 text-right">{i + 1}.</span>
+                  <span className="text-stone-500 text-sm pt-3 w-6 text-right flex-shrink-0">{i + 1}.</span>
                   <textarea
                     value={t}
                     onChange={(e) => updateTopic(i, e.target.value)}
@@ -874,7 +925,14 @@ const StudySetup: React.FC = () => {
                     onChange={() => {
                       setAiProvider(option.id);
                       // Reset model to provider's default when switching providers
-                      setAiModel(option.id === 'claude' ? DEFAULT_CLAUDE_MODEL : DEFAULT_GEMINI_MODEL);
+                      setAiModel(
+                        option.id === 'claude'
+                          ? DEFAULT_CLAUDE_MODEL
+                          : option.id === 'mistral'
+                          ? DEFAULT_MISTRAL_MODEL
+                          : DEFAULT_GEMINI_MODEL
+                      );
+
                       setIsDirty(true);
                     }}
                     className="mt-1 accent-stone-500"
@@ -897,14 +955,26 @@ const StudySetup: React.FC = () => {
                 onChange={(e) => { setAiModel(e.target.value); setIsDirty(true); }}
                 className="w-full px-4 py-3 rounded-xl bg-stone-800 border border-stone-600 text-stone-100 focus:outline-none focus:ring-2 focus:ring-stone-500 focus:border-stone-500"
               >
-                {(aiProvider === 'gemini' ? GEMINI_MODELS : CLAUDE_MODELS).map((model) => (
+                {(
+                  aiProvider === 'gemini'
+                    ? GEMINI_MODELS
+                    : aiProvider === 'claude'
+                    ? CLAUDE_MODELS
+                    : MISTRAL_MODELS
+                ).map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.label}
                   </option>
                 ))}
               </select>
               <p className="text-xs text-stone-500">
-                {(aiProvider === 'gemini' ? GEMINI_MODELS : CLAUDE_MODELS).find(m => m.id === aiModel)?.desc || ''}
+                {(
+                  aiProvider === 'gemini'
+                    ? GEMINI_MODELS
+                    : aiProvider === 'claude'
+                    ? CLAUDE_MODELS
+                    : MISTRAL_MODELS
+                ).find(m => m.id === aiModel)?.desc || ''}
               </p>
             </div>
 
@@ -930,6 +1000,19 @@ const StudySetup: React.FC = () => {
                 Automatic: OFF for interviews (faster responses), ON for synthesis (deeper analysis using premium models - may increase API costs)
               </p>
             </div>
+
+            {aiProvider === 'mistral' && configStatus && !configStatus.hasMistralKey && (
+              <div className="bg-amber-900/30 border border-amber-700/50 rounded-xl p-4 flex items-start gap-3">
+                <AlertTriangle size={18} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-medium text-amber-200 text-sm">Mistral API Key Missing</h4>
+                  <p className="text-xs text-stone-400 mt-1">
+                    Mistral interviews require the <code className="text-stone-300">MISTRAL_API_KEY</code> environment variable.
+                  </p>
+                </div>
+              </div>
+            )}
+
 
             {/* Warning: Claude selected but no API key */}
             {aiProvider === 'claude' && configStatus && !configStatus.hasAnthropicKey && (
@@ -1034,17 +1117,17 @@ const StudySetup: React.FC = () => {
 
               {participantLink ? (
                 <div className="space-y-3">
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <input
                       type="text"
                       value={participantLink}
                       readOnly
-                      className="flex-1 px-4 py-3 rounded-xl bg-stone-800 border border-stone-600 text-stone-300 text-sm font-mono"
+                      className="w-full min-w-0 sm:flex-1 px-4 py-3 rounded-xl bg-stone-800 border border-stone-600 text-stone-300 text-sm font-mono"
                     />
                     <button
                       type="button"
                       onClick={handleCopyLink}
-                      className="px-4 py-3 bg-stone-700 hover:bg-stone-600 text-stone-300 rounded-xl transition-colors flex items-center gap-2"
+                      className="px-4 py-3 bg-stone-700 hover:bg-stone-600 text-stone-300 rounded-xl transition-colors flex items-center justify-center gap-2"
                     >
                       {linkCopied ? <Check size={18} /> : <Copy size={18} />}
                       {linkCopied ? 'Copied!' : 'Copy'}
@@ -1089,13 +1172,15 @@ const StudySetup: React.FC = () => {
 
           {/* Submit */}
           <div className="pt-4 border-t border-stone-700">
-            <button
-              onClick={handleSubmit}
-              disabled={!isValid}
-              className="w-full py-4 bg-stone-600 hover:bg-stone-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2"
-            >
-              Start Interview <ArrowRight size={18} />
-            </button>
+            {viewMode !== "admin" && (
+              <button
+                onClick={handleSubmit}
+                disabled={!isValid}
+                className="w-full py-4 bg-stone-600 hover:bg-stone-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2"
+              >
+                Start Interview <ArrowRight size={18} />
+              </button>
+            )}
           </div>
         </motion.div>
       </div>
