@@ -4,7 +4,7 @@ import PreviewBanner from '@/components/PreviewBanner'
 import AdminModeDetector from '@/components/AdminModeDetector'
 
 export const metadata: Metadata = {
-  title: 'Research Interview Tool',
+  title: 'Interview Tool',
   description: 'AI-powered qualitative research interview platform',
 }
 
