@@ -68,10 +68,12 @@ export async function verifySessionToken(token: string): Promise<boolean> {
 
 // Cookie configuration for session token
 export function getSessionCookieOptions() {
+  const embeddedInBharatTech = process.env.OPENINTERVIEWER_EMBEDDED === 'true';
+
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict' as const, // Strict - no cross-site embedding needed
+    secure: process.env.NODE_ENV === 'production' || embeddedInBharatTech,
+    sameSite: embeddedInBharatTech ? 'none' as const : 'lax' as const,
     maxAge: SESSION_DURATION,
     path: '/',
   };

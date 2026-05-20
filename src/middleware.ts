@@ -6,6 +6,8 @@ const SESSION_COOKIE_NAME = 'research-auth';
 
 // Routes that require authentication
 const protectedRoutes = ['/dashboard', '/studies'];
+const SESSION_DURATION = 60 * 60 * 24 * 7; // 7 days in seconds
+const LAUNCH_TOKEN_PARAM = 'bt_token';
 
 // Verify session token in edge middleware
 async function verifySession(token: string, request: NextRequest): Promise<boolean> {
@@ -36,6 +38,58 @@ async function verifySession(token: string, request: NextRequest): Promise<boole
   }
 }
 
+async function createSessionToken(): Promise<string | null> {
+  const secret = process.env.SESSION_SECRET || process.env.ADMIN_PASSWORD;
+  if (!secret) return null;
+
+  return new jose.SignJWT({ type: 'session' })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(`${SESSION_DURATION}s`)
+    .sign(new TextEncoder().encode(secret));
+}
+
+async function verifyBharatTechLaunchToken(token: string): Promise<boolean> {
+  const secret = process.env.BHARATTECH_LAUNCH_SECRET;
+  if (!secret) return false;
+
+  try {
+    const { payload } = await jose.jwtVerify(token, new TextEncoder().encode(secret));
+    return payload.type === 'bharattech-admin-launch';
+  } catch {
+    return false;
+  }
+}
+
+function getSessionCookieOptions() {
+  const embeddedInBharatTech = process.env.OPENINTERVIEWER_EMBEDDED === 'true';
+
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production' || embeddedInBharatTech,
+    sameSite: embeddedInBharatTech ? 'none' as const : 'lax' as const,
+    maxAge: SESSION_DURATION,
+    path: '/',
+  };
+}
+
+async function consumeBharatTechLaunchToken(request: NextRequest) {
+  const launchToken = request.nextUrl.searchParams.get(LAUNCH_TOKEN_PARAM);
+  if (!launchToken) return null;
+
+  const isValidLaunch = await verifyBharatTechLaunchToken(launchToken);
+  const sessionToken = isValidLaunch ? await createSessionToken() : null;
+  if (!sessionToken) return null;
+
+  const cleanUrl = request.nextUrl.clone();
+  cleanUrl.searchParams.delete(LAUNCH_TOKEN_PARAM);
+  cleanUrl.searchParams.set('mode', 'admin');
+
+  const response = NextResponse.redirect(cleanUrl);
+  response.cookies.set(SESSION_COOKIE_NAME, sessionToken, getSessionCookieOptions());
+  return response;
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -44,6 +98,11 @@ export async function middleware(request: NextRequest) {
 
   if (!isProtectedRoute) {
     return NextResponse.next();
+  }
+
+  const launchResponse = await consumeBharatTechLaunchToken(request);
+  if (launchResponse) {
+    return launchResponse;
   }
 
   // Get auth cookie

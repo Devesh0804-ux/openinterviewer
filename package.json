@@ -20,6 +20,7 @@
     "jose": "^5.9.0",
     "jspdf": "^4.2.0",
     "jszip": "^3.10.1",
+    "keycloak-js": "^26.2.4",
     "lucide-react": "^0.460.0",
     "mongodb": "^7.2.0",
     "mongoose": "^9.2.1",
