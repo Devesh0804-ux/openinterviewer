@@ -60,7 +60,7 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
         getStudy(studyId),
         getStudyInterviews(studyId)
       ]);
-      setStudy(studyData);
+      setStudy(studyData ? { ...studyData, interviewCount: interviewData.length } : null);
       setInterviews(interviewData);
     } catch (error) {
       console.error('Error loading study:', error);
@@ -250,6 +250,7 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
     { id: 'interviews', label: 'Interviews', icon: <Users size={16} /> },
     { id: 'settings', label: 'Settings', icon: <Settings size={16} /> }
   ];
+  const interviewCount = interviews.length;
 
   return (
     <div className="min-h-screen bg-stone-900 px-4 py-5 sm:p-6 lg:p-8">
@@ -278,7 +279,7 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
                 <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-1 text-sm text-stone-400">
                   <span className="flex items-center gap-1">
                     <Users size={14} />
-                    {study.interviewCount} interviews
+                    {interviewCount} interviews
                   </span>
                   <span className="flex items-center gap-1">
                     <Calendar size={14} />
@@ -337,7 +338,7 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
               {/* Stats Summary */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="bg-stone-800/50 rounded-xl border border-stone-700 p-4 text-center">
-                  <div className="text-3xl font-bold text-white">{study.interviewCount}</div>
+                  <div className="text-3xl font-bold text-white">{interviewCount}</div>
                   <div className="text-sm text-stone-400">Interviews</div>
                 </div>
                 <div className="bg-stone-800/50 rounded-xl border border-stone-700 p-4 text-center">
@@ -359,7 +360,7 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
                   </h3>
                   <button
                     onClick={handleGenerateAggregateSynthesis}
-                    disabled={isGeneratingAggregate || interviews.length < 2}
+                    disabled={isGeneratingAggregate || interviewCount < 2}
                     className="w-full sm:w-auto px-4 py-2 text-sm bg-stone-700 hover:bg-stone-600 text-stone-300 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isGeneratingAggregate ? (
@@ -371,7 +372,7 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
                   </button>
                 </div>
 
-                {interviews.length < 2 ? (
+                {interviewCount < 2 ? (
                   <p className="text-stone-500 text-sm">
                     Need at least 2 interviews to generate aggregate analysis.
                   </p>
@@ -498,12 +499,12 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
 
           {activeTab === 'settings' && (
             <div className="space-y-6">
-              {study.interviewCount > 0 && (
+              {interviewCount > 0 && (
                 <div className="bg-amber-900/30 border border-amber-700/50 rounded-xl p-4 flex items-start gap-3">
                   <AlertCircle size={20} className="text-amber-400 flex-shrink-0 mt-0.5" />
                   <div>
                     <h4 className="font-medium text-white">
-                      {study.interviewCount} interview{study.interviewCount > 1 ? 's' : ''} collected
+                      {interviewCount} interview{interviewCount > 1 ? 's' : ''} collected
                     </h4>
                     <p className="text-sm text-stone-400">
                       This study has collected data. Editing is allowed but may affect consistency with existing responses.

@@ -10,6 +10,7 @@ import Interview from '@/models/Interview';
 import ParticipantToken from '@/models/ParticipantToken';
 import Study from '@/models/Study';
 import { StoredInterview, StoredStudy } from '@/types';
+import { DEMO_INTERVIEWS, DEMO_STUDY_CONFIG } from '@/lib/demoData';
 
 type LocalStore = {
   interviews: Record<string, StoredInterview>;
@@ -158,6 +159,72 @@ function toStoredStudy(document: any): StoredStudy {
   } as StoredStudy;
 }
 
+function getStudyIdentity(studyId: string, study?: StoredStudy | null) {
+  return {
+    ids: Array.from(new Set([
+      studyId,
+      study?.id,
+      study?.config?.id
+    ].filter((value): value is string => Boolean(value)))),
+    name: study?.config?.name
+  };
+}
+
+function getDemoInterviewsForStudy(studyId: string, study?: StoredStudy | null): StoredInterview[] {
+  const identity = getStudyIdentity(studyId, study);
+  const isDemoStudy =
+    identity.ids.includes(DEMO_STUDY_CONFIG.id) ||
+    identity.name === DEMO_STUDY_CONFIG.name;
+
+  if (!isDemoStudy) return [];
+
+  return DEMO_INTERVIEWS
+    .map(interview => ({ ...interview }))
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+async function findMongoStudyInterviews(studyId: string, study?: StoredStudy | null): Promise<StoredInterview[]> {
+  const identity = getStudyIdentity(studyId, study);
+  const conditions: any[] = identity.ids.map(id => ({ studyId: id }));
+
+  if (identity.name) {
+    conditions.push({ studyName: identity.name });
+  }
+
+  const interviews = conditions.length
+    ? await Interview.find({ $or: conditions }).lean()
+    : [];
+
+  const storedInterviews = interviews
+    .map(toStoredInterview)
+    .sort((a, b) => b.createdAt - a.createdAt);
+
+  return storedInterviews.length ? storedInterviews : getDemoInterviewsForStudy(studyId, study);
+}
+
+function findLocalStudyInterviews(store: LocalStore, studyId: string, study?: StoredStudy | null): StoredInterview[] {
+  const identity = getStudyIdentity(studyId, study);
+  const indexedIds = identity.ids.flatMap(id => store.studyInterviews[id] || []);
+  const indexedInterviews = indexedIds
+    .map(id => store.interviews[id])
+    .filter((interview): interview is StoredInterview => Boolean(interview));
+
+  const allMatchingInterviews = Object.values(store.interviews).filter((interview) => {
+    return identity.ids.includes(interview.studyId) ||
+      Boolean(identity.name && interview.studyName === identity.name);
+  });
+
+  const deduped = new Map<string, StoredInterview>();
+  [...indexedInterviews, ...allMatchingInterviews].forEach((interview) => {
+    deduped.set(interview.id || interview._id || `${interview.studyId}-${interview.createdAt}`, interview);
+  });
+
+  const interviews = Array.from(deduped.values())
+    .sort((a, b) => b.createdAt - a.createdAt);
+
+  return interviews.length ? interviews : getDemoInterviewsForStudy(studyId, study);
+}
+
 async function shouldUseMongo(): Promise<boolean> {
   if (!isMongoConfigured()) return false;
   if (mongoAvailableCache !== null) return mongoAvailableCache;
@@ -288,18 +355,12 @@ export async function getAllInterviews(): Promise<StoredInterview[]> {
 export async function getStudyInterviews(studyId: string): Promise<StoredInterview[]> {
   try {
     if (await shouldUseMongo()) {
-      const interviews = await Interview.find({ studyId }).lean();
-      return interviews
-        .map(toStoredInterview)
-        .sort((a, b) => b.createdAt - a.createdAt);
+      const study = await Study.findOne({ id: studyId }).lean();
+      return await findMongoStudyInterviews(studyId, study ? toStoredStudy(study) : null);
     }
 
     const store = await readLocalStore();
-    const ids = store.studyInterviews[studyId] || [];
-    return ids
-      .map(id => store.interviews[id])
-      .filter((i): i is StoredInterview => Boolean(i))
-      .sort((a, b) => b.createdAt - a.createdAt);
+    return findLocalStudyInterviews(store, studyId, store.studies[studyId] || null);
   } catch (error) {
     console.error('Error getting study interviews:', error);
     return [];
@@ -389,11 +450,22 @@ export async function getStudy(id: string): Promise<StoredStudy | null> {
   try {
     if (await shouldUseMongo()) {
       const study = await Study.findOne({ id }).lean();
-      return study ? toStoredStudy(study) : null;
+      if (!study) return null;
+      const storedStudy = toStoredStudy(study);
+      const interviews = await findMongoStudyInterviews(storedStudy.id, storedStudy);
+      return {
+        ...storedStudy,
+        interviewCount: interviews.length
+      };
     }
 
     const store = await readLocalStore();
-    return store.studies[id] || null;
+    const study = store.studies[id] || null;
+    if (!study) return null;
+    return {
+      ...study,
+      interviewCount: findLocalStudyInterviews(store, id, study).length
+    };
   } catch (error) {
     console.error('Error getting study:', error);
     return null;
@@ -408,7 +480,7 @@ export async function getAllStudies(): Promise<StoredStudy[]> {
       return await Promise.all(
         studies.map(async (study) => {
           const storedStudy = toStoredStudy(study);
-          const interviewCount = await Interview.countDocuments({ studyId: storedStudy.id });
+          const interviewCount = (await findMongoStudyInterviews(storedStudy.id, storedStudy)).length;
           return {
             ...storedStudy,
             interviewCount
@@ -421,7 +493,7 @@ export async function getAllStudies(): Promise<StoredStudy[]> {
     return Object.values(store.studies)
       .map(study => ({
         ...study,
-        interviewCount: store.studyInterviews[study.id]?.length || study.interviewCount || 0
+        interviewCount: findLocalStudyInterviews(store, study.id, study).length
       }))
       .sort((a, b) => b.createdAt - a.createdAt);
   } catch (error) {
@@ -466,8 +538,8 @@ export async function incrementStudyInterviewCount(studyId: string): Promise<boo
     if (!study) return false;
 
     const interviewCount = (await shouldUseMongo())
-      ? await Interview.countDocuments({ studyId })
-      : (await readLocalStore()).studyInterviews[studyId]?.length || 0;
+      ? (await findMongoStudyInterviews(studyId, study)).length
+      : findLocalStudyInterviews(await readLocalStore(), studyId, study).length;
 
     study.interviewCount = interviewCount;
     study.updatedAt = Date.now();

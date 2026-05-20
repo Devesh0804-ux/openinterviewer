@@ -22,7 +22,6 @@ import {
   FileText,
   Plus,
   X,
-  ArrowRight,
   ArrowLeft,
   Sparkles,
   Eye,
@@ -81,7 +80,7 @@ const PROFILE_PRESETS: ProfileField[] = [
 const StudySetup: React.FC = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { setStudyConfig, setStep, studyConfig, loadExampleStudy, setViewMode, setParticipantToken, viewMode } = useStore();
+  const { setStudyConfig, setStep, studyConfig, loadExampleStudy, setViewMode } = useStore();
 
   // Follow-up study state
   const [parentStudyInfo, setParentStudyInfo] = useState<{ id: string; name: string } | null>(null);
@@ -359,13 +358,6 @@ const StudySetup: React.FC = () => {
     }),
     _id: ''
   });
-
-  const handleSubmit = () => {
-    const config = buildConfig();
-    setStudyConfig(config);
-    setStep('consent');
-    router.push('/consent');
-  };
 
   const handlePreview = async () => {
     setIsPreviewLoading(true);
@@ -1170,18 +1162,6 @@ const StudySetup: React.FC = () => {
             </div>
           )}
 
-          {/* Submit */}
-          <div className="pt-4 border-t border-stone-700">
-            {viewMode !== "admin" && (
-              <button
-                onClick={handleSubmit}
-                disabled={!isValid}
-                className="w-full py-4 bg-stone-600 hover:bg-stone-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2"
-              >
-                Start Interview <ArrowRight size={18} />
-              </button>
-            )}
-          </div>
         </motion.div>
       </div>
     </div>

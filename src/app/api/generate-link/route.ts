@@ -62,7 +62,7 @@ export async function POST(request: Request) {
       secret = getSecret();
     } catch {
       return NextResponse.json(
-        { error: 'Token signing not configured. Set ADMIN_PASSWORD or PARTICIPANT_TOKEN_SECRET.' },
+        { error: 'Token signing not configured. Set PARTICIPANT_TOKEN_SECRET.' },
         { status: 500 }
       );
     }
@@ -103,9 +103,9 @@ export async function POST(request: Request) {
     const token = await jwtBuilder.sign(secret);
 
     // Build the full URL
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    const requestOrigin = new URL(request.url).origin;
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL
+      || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : requestOrigin);
 
     const participantUrl = `${baseUrl}/p/${token}`;
 

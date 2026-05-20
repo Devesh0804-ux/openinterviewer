@@ -19,7 +19,10 @@ import {
   FolderOpen,
   LogOut,
   Filter,
-  BookOpen
+  BookOpen,
+  Copy,
+  Check,
+  Mail
 } from 'lucide-react';
 
 const Dashboard: React.FC = () => {
@@ -32,6 +35,9 @@ const Dashboard: React.FC = () => {
   const [warning, setWarning] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const [participantEmail, setParticipantEmail] = useState('');
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const { viewMode } = useStore();
   const loadedStudies = React.useRef(false);
   const loadedInterviews = React.useRef(false);
@@ -59,12 +65,30 @@ const Dashboard: React.FC = () => {
     const data = await res.json();
     const fullLink = `${window.location.origin}/p/${data.token}`;
     setLink(fullLink);
+    setLinkCopied(false);
+    setEmailStatus(null);
+  };
+
+  const handleCopyLink = async () => {
+    if (!link) return;
+
+    try {
+      await navigator.clipboard.writeText(link);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      setEmailStatus({ type: 'error', message: 'Could not copy link. Select the link and copy it manually.' });
+    }
   };
 
   const handleSendEmail = async () => {
+    if (!link) {
+      setEmailStatus({ type: 'error', message: 'Generate an interview link before sending email.' });
+      return;
+    }
 
-    if (!participantEmail || !link) {
-      alert("Enter participant email first");
+    if (!participantEmail.trim()) {
+      setEmailStatus({ type: 'error', message: 'Enter at least one participant email.' });
       return;
     }
 
@@ -72,6 +96,14 @@ const Dashboard: React.FC = () => {
       .split(",")
       .map((e) => e.trim())
       .filter(Boolean);
+
+    if (emailList.length === 0) {
+      setEmailStatus({ type: 'error', message: 'Enter at least one valid email address.' });
+      return;
+    }
+
+    setEmailSending(true);
+    setEmailStatus(null);
 
     try {
 
@@ -86,16 +118,20 @@ const Dashboard: React.FC = () => {
         })
       });
 
+      const data = await res.json().catch(() => ({}));
+
       if (res.ok) {
-        alert("Email sent successfully!");
+        setEmailStatus({ type: 'success', message: `Email sent to ${emailList.length} participant${emailList.length === 1 ? '' : 's'}.` });
         setParticipantEmail("");
       } else {
-        alert("Failed to send email");
+        setEmailStatus({ type: 'error', message: data.error || "Failed to send email." });
       }
 
     } catch (error) {
       console.error(error);
-      alert("Error sending email");
+      setEmailStatus({ type: 'error', message: "Error sending email. Please try again." });
+    } finally {
+      setEmailSending(false);
     }
   };
 
@@ -329,10 +365,15 @@ const Dashboard: React.FC = () => {
                 />
 
                 <button
-                  onClick={() => navigator.clipboard.writeText(link)}
+                  onClick={handleCopyLink}
                   className="px-4 py-2 bg-stone-700 text-stone-300 rounded-xl"
                 >
-                  Copy
+                  {linkCopied ? (
+                    <Check size={16} className="inline-block mr-1 text-green-400" />
+                  ) : (
+                    <Copy size={16} className="inline-block mr-1" />
+                  )}
+                  {linkCopied ? 'Copied!' : 'Copy'}
                 </button>
 
                 <input
@@ -345,13 +386,21 @@ const Dashboard: React.FC = () => {
 
                 <button
                   onClick={handleSendEmail}
-                  className="px-4 py-2 bg-stone-600 text-white rounded-xl"
+                  disabled={emailSending}
+                  className="px-4 py-2 bg-stone-600 text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  Send via Email
+                  {emailSending ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} />}
+                  {emailSending ? 'Sending...' : 'Send via Email'}
                 </button>
               </>
             )}
           </div>
+
+          {emailStatus && (
+            <p className={`mt-3 text-sm ${emailStatus.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+              {emailStatus.message}
+            </p>
+          )}
         </motion.div>
 
         {/* Warning */}
@@ -426,10 +475,10 @@ const Dashboard: React.FC = () => {
                 <div className="w-full max-w-lg bg-stone-800 border border-stone-700 rounded-xl p-4 text-sm text-stone-300 break-all">
                   {link}
                   <button
-                    onClick={() => navigator.clipboard.writeText(link)}
+                    onClick={handleCopyLink}
                     className="mt-3 px-4 py-2 bg-stone-700 hover:bg-stone-600 text-white rounded-lg"
                   >
-                    Copy Link
+                    {linkCopied ? 'Copied!' : 'Copy Link'}
                   </button>
                 </div>
               )}
