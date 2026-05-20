@@ -100,11 +100,7 @@ export async function POST(request: Request) {
         ? clientData.createdAt
         : now,
       completedAt: now,
-      status: 'completed',
-
-      history: undefined,
-      messages: undefined,
-      _id: ''
+      status: 'completed'
     };
 
     const storageAvailable = await isMongoStorageAvailable();

@@ -48,6 +48,11 @@ function stripMongoFields<T extends Record<string, any>>(document: T) {
   return clean;
 }
 
+function stripMongoWriteFields<T extends Record<string, any>>(document: T) {
+  const { _id, __v, ...clean } = document;
+  return clean;
+}
+
 function toTimestamp(value: any, fallback = Date.now()): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (value instanceof Date) {
@@ -309,9 +314,10 @@ export async function getInterview(id: string): Promise<StoredInterview | null> 
 export async function saveInterview(interview: StoredInterview): Promise<boolean> {
   try {
     if (await shouldUseMongo()) {
+      const interviewToSave = stripMongoWriteFields(interview as any);
       await Interview.findOneAndUpdate(
         { id: interview.id },
-        { $set: interview },
+        { $set: interviewToSave },
         { upsert: true, new: true, setDefaultsOnInsert: true }
       );
       return true;
@@ -427,9 +433,10 @@ export async function getStorageWarning(): Promise<string | null> {
 export async function saveStudy(study: StoredStudy): Promise<boolean> {
   try {
     if (await shouldUseMongo()) {
+      const studyToSave = stripMongoWriteFields(study as any);
       await Study.findOneAndUpdate(
         { id: study.id },
-        { $set: study },
+        { $set: studyToSave },
         { upsert: true, new: true, setDefaultsOnInsert: true }
       );
       return true;

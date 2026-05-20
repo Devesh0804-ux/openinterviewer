@@ -28,6 +28,20 @@ async function verifyAuth() {
   return { authorized: true };
 }
 
+function hasUsableSynthesis(synthesis: SynthesisResult | null | undefined): synthesis is SynthesisResult {
+  if (!synthesis) return false;
+
+  const hasRealKeyInsights = synthesis.keyInsights?.some(
+    insight => insight && !/analysis pending/i.test(insight)
+  );
+  const hasRealBottomLine = Boolean(
+    synthesis.bottomLine &&
+    !/synthesis in progress|analysis pending/i.test(synthesis.bottomLine)
+  );
+
+  return Boolean(hasRealKeyInsights || hasRealBottomLine || synthesis.themes?.length);
+}
+
 export async function POST(request: Request) {
   try {
     // Verify researcher authentication
@@ -77,14 +91,12 @@ export async function POST(request: Request) {
 
     // Extract synthesis results from interviews
     const syntheses: SynthesisResult[] = interviews
-      .filter((i: any) => i.synthesis)
-      .map((i: any) => i.synthesis);
-
-
+      .map((i: any) => i.synthesis)
+      .filter(hasUsableSynthesis);
 
     if (syntheses.length < 2) {
       return NextResponse.json(
-        { error: 'Need at least 2 interviews with synthesis results' },
+        { error: 'Need at least 2 interviews with completed analysis results. Open individual interview details first if analysis is still pending.' },
         { status: 400 }
       );
     }

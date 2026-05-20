@@ -307,7 +307,7 @@ const InterviewChat: React.FC = () => {
           : '';
 
       const latestHistory = useStore.getState().interviewHistory;
-      const updatedHistory = latestHistory.concat(userMsg);
+      const updatedHistory = latestHistory;
 
       const latestProfile = useStore.getState().participantProfile;
 
@@ -331,8 +331,6 @@ const InterviewChat: React.FC = () => {
 
       console.log("FULL FRONTEND RESPONSE:", response);
       
-      const sentHistory = interviewHistory.concat(userMsg);
-
         addMessage({
           id: `msg-${Date.now()}`,
           role: "ai",
@@ -390,18 +388,7 @@ const InterviewChat: React.FC = () => {
         setIsFinishing(true);     // 🔥 show loader immediately
         completeInterview();      // lock input
 
-        const latestHistory = useStore.getState().interviewHistory;
-
-        const finalHistory = [
-          ...latestHistory,
-          userMsg,
-          {
-            id: `msg-${Date.now()}`,
-            role: 'ai',
-            content: response.message,
-            timestamp: Date.now()
-          }
-        ];
+        const finalHistory = useStore.getState().interviewHistory;
 
         const currentProfile = useStore.getState().participantProfile;
 
@@ -435,6 +422,7 @@ const InterviewChat: React.FC = () => {
 
     } catch (error) {
       console.error('Interview error:', error);
+      setIsFinishing(false);
 
       addMessage({
         id: `msg-${Date.now()}`,

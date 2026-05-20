@@ -18,22 +18,43 @@ async function verifyAuth() {
   return verifySessionToken(authCookie.value);
 }
 
-function buildInvitationEmail(link: string) {
+function buildInvitationEmail(link: string, recipientEmail: string) {
+  const displayName = recipientEmail.split('@')[0] || 'Participant';
+
   return `
-    <div style="font-family: Arial, sans-serif; line-height:1.6; color:#111">
-      <h2>Interview Invitation</h2>
-      <p>You are invited to participate in our research interview.</p>
-      <a href="${link}"
-        style="background:#111;color:white;padding:10px 18px;text-decoration:none;border-radius:6px;display:inline-block;margin-top:10px">
-        Start Interview
-      </a>
-      <p style="margin-top:20px">
-        Or open this link:<br/>
-        <a href="${link}">${link}</a>
+    <div style="font-family: Arial, sans-serif; line-height:1.6; color:#202124; font-size:14px">
+      <p>Hi ${displayName},</p>
+
+      <p>You have been invited to participate in a BharatTech research interview.</p>
+
+      <p>
+        Interview Link:
+        <a href="${link}" style="color:#1155cc">${link}</a>
       </p>
-      <p>Thank you.</p>
+
+      <p>Please open the link above to start your interview.</p>
+
+      <p>
+        Regards,<br/>
+        BharatTech Team
+      </p>
     </div>
   `;
+}
+
+function buildInvitationText(link: string, recipientEmail: string) {
+  const displayName = recipientEmail.split('@')[0] || 'Participant';
+
+  return `Hi ${displayName},
+
+You have been invited to participate in a BharatTech research interview.
+
+Interview Link: ${link}
+
+Please open the link above to start your interview.
+
+Regards,
+BharatTech Team`;
 }
 
 export async function POST(req: Request) {
@@ -81,7 +102,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const html = buildInvitationEmail(url.toString());
+    const linkUrl = url.toString();
 
     if (process.env.RESEND_API_KEY) {
       const { Resend } = await import("resend");
@@ -90,8 +111,9 @@ export async function POST(req: Request) {
       const result = await resend.emails.send({
         from: process.env.EMAIL_FROM || "Research Team <onboarding@resend.dev>",
         to: emailList,
-        subject: "Interview Invitation",
-        html,
+        subject: "You're invited to BharatTech",
+        html: buildInvitationEmail(linkUrl, emailList[0]),
+        text: buildInvitationText(linkUrl, emailList[0]),
       });
 
       if (result.error) {
@@ -99,20 +121,27 @@ export async function POST(req: Request) {
       }
     } else if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
       const transporter = nodemailer.createTransport({
-        service: "gmail",
+        host: "smtp.gmail.com",
+        port: 465,
+        secure: true,
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
+        family: 4,
         auth: {
           user: process.env.EMAIL_USER,
           pass: process.env.EMAIL_PASS,
         },
-      });
+      } as nodemailer.TransportOptions);
 
       await Promise.all(
         emailList.map((email: string) =>
           transporter.sendMail({
             from: process.env.EMAIL_FROM || `"Research Team" <${process.env.EMAIL_USER}>`,
             to: email,
-            subject: "Interview Invitation",
-            html,
+            subject: "You're invited to BharatTech",
+            html: buildInvitationEmail(linkUrl, email),
+            text: buildInvitationText(linkUrl, email),
           })
         )
       );

@@ -1,7 +1,41 @@
 import { NextResponse } from 'next/server';
 import { getInterviewProvider } from '@/lib/providers';
-import { incrementStudyInterviewCount, isMongoStorageAvailable, lockStudy, saveInterview } from '@/lib/kv';
-import { StoredInterview } from '@/types';
+import {
+  incrementStudyInterviewCount,
+  isMongoStorageAvailable,
+  lockStudy,
+  saveInterview
+} from '@/lib/kv';
+import { InterviewMessage, StoredInterview } from '@/types';
+
+function getParticipantName(history: InterviewMessage[], participantProfile: any) {
+  const nameField = participantProfile?.fields?.find(
+    (field: any) => field.fieldId === 'name'
+  );
+
+  if (
+    typeof nameField?.value === 'string' &&
+    nameField.value.trim() &&
+    nameField.value.trim().toLowerCase() !== 'yes'
+  ) {
+    return nameField.value.trim();
+  }
+
+  const nameMessage = history.find((message: any, index: number) => {
+    if (message.role !== 'user') return false;
+    const previousMessage = history[index - 1]?.content?.toLowerCase() || '';
+    return previousMessage.includes('name');
+  });
+
+  const extractedName = nameMessage?.content
+    ? nameMessage.content
+      .trim()
+      .replace(/[^a-zA-Z\s]/g, '')
+      .replace(/\s+/g, ' ')
+    : null;
+
+  return extractedName || 'Participant';
+}
 
 export async function POST(request: Request) {
   try {
@@ -24,50 +58,9 @@ export async function POST(request: Request) {
       );
     }
 
-    let updatedProfile = participantProfile || { fields: [] };
-
-    const nameField = updatedProfile.fields?.find(
-      (field: any) => field.fieldId === 'name'
-    );
-
-    const nameMessage = history.find((message: any, index: number) => {
-      if (message.role !== 'user') return false;
-      const previousMessage = history[index - 1]?.content?.toLowerCase() || '';
-      return previousMessage.includes('name');
-    });
-
-    const extractedName = nameMessage?.content
-      ? nameMessage.content
-        .trim()
-        .replace(/[^a-zA-Z\s]/g, '')
-        .replace(/\s+/g, ' ')
-      : null;
-
-    const participantName =
-      extractedName ||
-      (nameField?.value &&
-      nameField.value.trim() !== '' &&
-      nameField.value.trim().toLowerCase() !== 'yes'
-        ? nameField.value
-        : null) ||
-      'Participant';
-
-    if (extractedName) {
-      updatedProfile = {
-        ...updatedProfile,
-        fields: [
-          ...(updatedProfile.fields || []).filter((field: any) => field.fieldId !== 'name'),
-          {
-            fieldId: 'name',
-            value: extractedName,
-            status: 'extracted'
-          }
-        ]
-      };
-    }
-
     const now = Date.now();
     const interviewId = crypto.randomUUID();
+    const updatedProfile = participantProfile || { fields: [] };
     const behaviorData = {
       timePerTopic: {},
       messagesPerTopic: {},
@@ -76,11 +69,10 @@ export async function POST(request: Request) {
     };
 
     const baseInterview: StoredInterview = {
-      _id: interviewId,
       id: interviewId,
       studyId,
       studyName: studyConfig.name || 'Unknown Study',
-      participantName,
+      participantName: getParticipantName(history, updatedProfile),
       participantProfile: {
         id: updatedProfile.id || interviewId,
         fields: updatedProfile.fields || [],
@@ -129,9 +121,7 @@ export async function POST(request: Request) {
       console.warn('Interview saved, but synthesis failed:', synthesisError);
     }
 
-    return NextResponse.json({
-      interviewId
-    });
+    return NextResponse.json({ interviewId });
   } catch (error) {
     console.error('Complete Interview Error:', error);
     return NextResponse.json(

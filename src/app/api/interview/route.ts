@@ -1,10 +1,8 @@
-// POST /api/interview - Generate AI interview response
-// Server-side only - API keys never sent to client
-// Requires valid participant token to prevent quota abuse
+// POST /api/interview - Generate one clean AI interview turn.
+// Server-side only - API keys never sent to client.
 
 import { NextResponse } from 'next/server';
 import { getInterviewProvider } from '@/lib/providers';
-import { verifyParticipantToken } from '@/lib/auth';
 import {
   StudyConfig,
   ParticipantProfile,
@@ -12,61 +10,101 @@ import {
   QuestionProgress
 } from '@/types';
 
-// Payload size limits to prevent abuse
-const MAX_HISTORY_MESSAGES = 100;
-const MAX_CONTEXT_LENGTH = 10000;
 const MAX_MESSAGE_LENGTH = 5000;
 
 function normalizeText(value: string) {
   return value.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-function ensureCoreQuestion(message: string, nextQuestion: string | null) {
-  if (!nextQuestion) return message;
+function cleanMessage(value: unknown) {
+  return String(value || '')
+    .replace(/```json/g, '')
+    .replace(/```/g, '')
+    .replace(/\r/g, '')
+    .trim()
+    .slice(0, MAX_MESSAGE_LENGTH);
+}
 
-  const normalizedMessage = normalizeText(message || '');
+function getShortAcknowledgement(message: string) {
+  const firstStatement = cleanMessage(message)
+    .split(/\n+/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .find(line => !line.includes('?') && line.length <= 180);
+
+  if (!firstStatement) return 'Thank you for sharing that.';
+
+  return firstStatement
+    .replace(/^[-*\d.)\s]+/, '')
+    .trim();
+}
+
+function extractFirstQuestion(message: string, fallback: string) {
+  const text = cleanMessage(message);
+  const match = text.match(/[^?]*\?/);
+  const question = match?.[0]?.replace(/^[-*\d.)\s]+/, '').trim();
+  return question && question.length >= 12 ? question : fallback;
+}
+
+function buildCoreQuestionTurn(aiMessage: string, nextQuestion: string) {
+  const normalizedMessage = normalizeText(aiMessage);
   const normalizedQuestion = normalizeText(nextQuestion);
 
-  if (normalizedMessage.includes(normalizedQuestion)) {
-    return message;
+  if (normalizedMessage === normalizedQuestion) return nextQuestion;
+
+  const acknowledgement = getShortAcknowledgement(aiMessage);
+  return `${acknowledgement}\n\n${nextQuestion}`;
+}
+
+function getNextCoreQuestion(studyConfig: StudyConfig, questionProgress?: QuestionProgress) {
+  const coreQuestions = studyConfig?.coreQuestions || [];
+  const askedIndexes = new Set(questionProgress?.questionsAsked || []);
+  const nextIndex = coreQuestions.findIndex((_, index) => !askedIndexes.has(index));
+
+  if (nextIndex === -1) {
+    return {
+      index: null,
+      question: null,
+      total: coreQuestions.length
+    };
   }
 
-  const intro = message?.trim()
-    ? `${message.trim()}\n\n`
-    : '';
-
-  return `${intro}${nextQuestion}`;
+  return {
+    index: nextIndex,
+    question: coreQuestions[nextIndex],
+    total: coreQuestions.length
+  };
 }
 
 export async function POST(request: Request) {
   try {
-    // TEMP: Skip participant verification during development
-    const auth = { valid: true, participantId: "dev-test" };
-
+    // TEMP: participant verification is currently relaxed in this app.
     const body = await request.json();
 
     const {
-      history,  
+      history,
       studyConfig,
       participantProfile,
       questionProgress,
       currentContext
+    }: {
+      history: InterviewMessage[];
+      studyConfig: StudyConfig;
+      participantProfile: ParticipantProfile | null;
+      questionProgress: QuestionProgress;
+      currentContext: string;
     } = body;
 
-    // Determine next core question
-    const asked = questionProgress?.questionsAsked?.length ?? 0;
-    const total = studyConfig?.coreQuestions?.length || 0;
-
-    let nextQuestion: string | null = null;
-
-    if (asked < total) {
-      // Core question phase
-      nextQuestion = studyConfig.coreQuestions[asked];
-    } else {
-      // Exploration phase
-      nextQuestion = "What was the biggest challenge you faced in this experience?";
+    if (!Array.isArray(history) || !studyConfig) {
+      return NextResponse.json(
+        { error: 'Missing interview history or study configuration' },
+        { status: 400 }
+      );
     }
 
+    const { index: nextQuestionIndex, question: nextQuestion, total } =
+      getNextCoreQuestion(studyConfig, questionProgress);
+    const participantAnswerCount = history.filter(message => message.role === 'user').length;
     const provider = getInterviewProvider(studyConfig);
 
     const result = await provider.generateInterviewResponse(
@@ -74,39 +112,41 @@ export async function POST(request: Request) {
       studyConfig,
       participantProfile,
       questionProgress,
-      currentContext,
+      currentContext
     );
 
-      const nameField = participantProfile?.fields?.find(
-        (f: any) => f.fieldId === "name"
-      );
+    const nameField = participantProfile?.fields?.find(
+      (field: any) => field.fieldId === 'name'
+    );
+    const extractedName = nameField?.value || null;
 
-      const extractedName = nameField?.value || null;
+    if (extractedName) {
+      result.profileUpdates = [
+        ...(result.profileUpdates || []),
+        {
+          fieldId: 'name',
+          value: extractedName,
+          status: 'extracted'
+        }
+      ];
+    }
 
-      // ✅ ensure name is always in profileUpdates
-      if (extractedName) {
-        result.profileUpdates = [
-          ...(result.profileUpdates || []),
-          {
-            fieldId: "name",
-            value: extractedName,
-            status: "extracted"
-          }
-        ];
-      }
-
-    // Merge profile updates into participantProfile
     let updatedProfile = participantProfile;
 
     if (participantProfile && result.profileUpdates?.length) {
       updatedProfile = {
         ...participantProfile,
-        fields: participantProfile.fields.map((field: { fieldId: any; value: any; }) => {
+        fields: participantProfile.fields.map((field: any) => {
           const update = result.profileUpdates.find(
-            (u: any) => u.fieldId === field.fieldId
+            (item: any) => item.fieldId === field.fieldId
           );
 
-          if (!update) return field;
+          if (!update) {
+            return {
+              ...field,
+              status: field.status || 'pending'
+            };
+          }
 
           return {
             ...field,
@@ -117,70 +157,46 @@ export async function POST(request: Request) {
       };
     }
 
-    console.log("AI RESPONSE:", JSON.stringify(result, null, 2));
+    let shouldConclude = Boolean(result.shouldConclude);
+    let finalMessage: string;
+    let questionAddressed: number | null = null;
+    let phaseTransition: QuestionProgress['currentPhase'] | null = null;
 
-    // Force the configured core interview questions to be asked in order.
-    result.message = ensureCoreQuestion(result.message, nextQuestion);
-
-    // Force next core question if AI gives vague exploration prompt
-    const aiMessage = result.message?.toLowerCase() || "";
-
-    if (
-      nextQuestion &&
-      (
-        !aiMessage ||
-        aiMessage.includes("tell me more") ||
-        aiMessage.includes("elaborate") ||
-        aiMessage.length < 15
-      )
-    ) {
-      result.message = nextQuestion;
+    if (nextQuestion && nextQuestionIndex !== null) {
+      finalMessage = buildCoreQuestionTurn(result.message, nextQuestion);
+      questionAddressed = nextQuestionIndex;
+      phaseTransition = nextQuestionIndex + 1 >= total ? 'exploration' : 'core-questions';
+      shouldConclude = false;
+    } else {
+      const explorationFallback = 'Looking back, what feels most important for someone else to understand about this experience?';
+      finalMessage = extractFirstQuestion(result.message, explorationFallback);
+      phaseTransition = participantAnswerCount >= Math.max(total + 3, 8)
+        ? 'wrap-up'
+        : 'exploration';
+      shouldConclude = phaseTransition === 'wrap-up';
     }
 
-    let shouldConclude = !!result.shouldConclude;
-
-    // ✅ Force conclude if AI says closing message
-    const msg = (result.message || "").toLowerCase();
-
+    const closingText = cleanMessage(finalMessage).toLowerCase();
     if (
-      msg.includes("concludes our interview") ||
-      msg.includes("this concludes") ||
-      msg.includes("thank you for your time")
+      closingText.includes('concludes our interview') ||
+      closingText.includes('this concludes') ||
+      closingText.includes('thank you for your time')
     ) {
       shouldConclude = true;
+      phaseTransition = 'wrap-up';
     }
 
-    const MIN_MESSAGES = 6;
-
-    // 🚨 HARD STOP (backend level)
-    if (asked >= 12) {
-      shouldConclude = true;
+    if (shouldConclude) {
+      finalMessage = 'Thank you for your time and valuable insights. This concludes the interview.';
     }
 
-    if (history.length < MIN_MESSAGES) {
-      shouldConclude = false;
-    }
+    const updatedHistory = history.slice(-20);
+    const last = updatedHistory[updatedHistory.length - 1];
 
-    // If no core questions, don't auto end
-    if (total === 0) {
-      shouldConclude = false;
-    }
-
-    // ✅ FINAL THANK YOU MESSAGE LOGIC
-    let finalMessage = result.message;
-
-    if (shouldConclude === true) {
-      finalMessage = "Thank you for your time and valuable insights. This concludes the interview.";
-    }
-    
-    let updatedHistory = history.slice(-20);
-
-    // ✅ Reuse (no let)
-    let last = updatedHistory[updatedHistory.length - 1];
-
-    if (!last || last.content !== finalMessage) {
+    if (!last || last.role !== 'ai' || last.content !== finalMessage) {
       updatedHistory.push({
-        role: "ai",
+        id: `msg-${Date.now()}`,
+        role: 'ai',
         content: finalMessage,
         timestamp: Date.now()
       });
@@ -189,13 +205,12 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ...result,
       message: finalMessage,
-      questionAddressed: asked,
-      phaseTransition: asked + 1 >= total ? "exploration" : "core-questions",
+      questionAddressed,
+      phaseTransition,
       shouldConclude,
       history: updatedHistory,
       participantProfile: updatedProfile
     });
-
   } catch (error) {
     console.error('Interview API error:', error);
     return NextResponse.json(
