@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMAIL_TIMEOUT_MS = 12000;
+const EMAIL_SUBJECT = "You're invited to BharatTech";
 
 class EmailSendError extends Error {
   status: number;
@@ -86,6 +87,140 @@ function getGmailCredentials() {
   return { user, pass };
 }
 
+function getGmailApiCredentials() {
+  const clientId = process.env.GMAIL_CLIENT_ID?.trim();
+  const clientSecret = process.env.GMAIL_CLIENT_SECRET?.trim();
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN?.trim();
+  const user = process.env.EMAIL_USER?.trim();
+
+  if (!clientId || !clientSecret || !refreshToken || !user) {
+    return null;
+  }
+
+  return { clientId, clientSecret, refreshToken, user };
+}
+
+function encodeBase64Url(value: string) {
+  return Buffer.from(value, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function buildMimeMessage(to: string, from: string, subject: string, text: string, html: string) {
+  const boundary = `bharattech_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  return [
+    `From: ${from}`,
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
+    "Content-Type: text/plain; charset=UTF-8",
+    "Content-Transfer-Encoding: 7bit",
+    "",
+    text,
+    "",
+    `--${boundary}`,
+    "Content-Type: text/html; charset=UTF-8",
+    "Content-Transfer-Encoding: 7bit",
+    "",
+    html,
+    "",
+    `--${boundary}--`,
+    ""
+  ].join("\r\n");
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = EMAIL_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new EmailSendError("Gmail API request timed out. Please try again.", 504);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function getGmailAccessToken() {
+  const credentials = getGmailApiCredentials();
+  if (!credentials) return null;
+
+  const response = await fetchWithTimeout("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: credentials.clientId,
+      client_secret: credentials.clientSecret,
+      refresh_token: credentials.refreshToken,
+      grant_type: "refresh_token"
+    })
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || !data.access_token) {
+    throw new EmailSendError(
+      data?.error_description || data?.error || "Failed to get Gmail API access token.",
+      response.status || 500
+    );
+  }
+
+  return {
+    accessToken: String(data.access_token),
+    user: credentials.user
+  };
+}
+
+async function sendWithGmailApi(emailList: string[], linkUrl: string) {
+  const tokenData = await getGmailAccessToken();
+  if (!tokenData) return false;
+
+  const from = getConfiguredSender();
+
+  await Promise.all(emailList.map(async (email) => {
+    const raw = encodeBase64Url(buildMimeMessage(
+      email,
+      from,
+      EMAIL_SUBJECT,
+      buildInvitationText(linkUrl, email),
+      buildInvitationEmail(linkUrl, email)
+    ));
+
+    const response = await fetchWithTimeout("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${tokenData.accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ raw })
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new EmailSendError(
+        data?.error?.message || "Gmail API rejected the email request.",
+        response.status || 500
+      );
+    }
+  }));
+
+  return true;
+}
+
 function createGmailTransport(port: 465 | 587) {
   const { user, pass } = getGmailCredentials();
 
@@ -113,7 +248,7 @@ function explainSmtpError(error: unknown) {
   }
 
   if (/timeout|ETIMEDOUT|ESOCKET|ECONNECTION|ECONNREFUSED|ENETUNREACH/i.test(message)) {
-    return "Gmail SMTP connection timed out from the server. On Render, use RESEND_API_KEY for reliable email delivery, or check that outbound SMTP is allowed.";
+    return "Gmail SMTP connection timed out from Render. Add GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN to send through Gmail API over HTTPS, or enable outbound SMTP on your hosting service.";
   }
 
   return message || "Failed to send email through Gmail SMTP.";
@@ -132,7 +267,7 @@ async function sendWithGmailSmtp(emailList: string[], linkUrl: string) {
           transporter.sendMail({
             from,
             to: email,
-            subject: "You're invited to BharatTech",
+            subject: EMAIL_SUBJECT,
             html: buildInvitationEmail(linkUrl, email),
             text: buildInvitationText(linkUrl, email),
           })
@@ -195,7 +330,11 @@ export async function POST(req: Request) {
     }
 
     const linkUrl = url.toString();
-    await sendWithGmailSmtp(emailList, linkUrl);
+    const sentWithGmailApi = await sendWithGmailApi(emailList, linkUrl);
+
+    if (!sentWithGmailApi) {
+      await sendWithGmailSmtp(emailList, linkUrl);
+    }
 
     return NextResponse.json({ success: true, sent: emailList.length });
   } catch (error) {
