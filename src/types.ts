@@ -253,6 +253,15 @@ export interface AggregateSynthesisResult {
   interviewCount: number;
   commonThemes: { theme: string; frequency: number; representativeQuotes: string[] }[];
   divergentViews: { topic: string; viewA: string; viewB: string }[];
+  participantComparisons?: {
+    participantName: string;
+    rank: number;
+    score: number;
+    strengths: string[];
+    gaps: string[];
+    summary: string;
+  }[];
+  topParticipantSummary?: string;
   keyFindings: string[];
   researchImplications: string[];
   bottomLine: string;           // One-paragraph summary of all interviews

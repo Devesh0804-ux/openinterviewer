@@ -396,6 +396,52 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
                       </p>
                     </div>
 
+                    {aggregateSynthesis.participantComparisons?.length ? (
+                      <div>
+                        <h4 className="text-sm font-medium text-stone-400 mb-2">Participant Comparison</h4>
+                        {aggregateSynthesis.topParticipantSummary && (
+                          <p className="mb-3 rounded-lg border border-green-800/60 bg-green-950/30 p-3 text-sm text-green-200">
+                            {aggregateSynthesis.topParticipantSummary}
+                          </p>
+                        )}
+                        <div className="space-y-3">
+                          {aggregateSynthesis.participantComparisons.map((participant) => (
+                            <div key={`${participant.rank}-${participant.participantName}`} className="rounded-lg border border-stone-700 bg-stone-800 p-3">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                  <div className="font-medium text-stone-100">
+                                    #{participant.rank} {participant.participantName}
+                                  </div>
+                                  <p className="mt-1 text-sm text-stone-400">{participant.summary}</p>
+                                </div>
+                                <div className="rounded-full bg-stone-700 px-3 py-1 text-sm font-medium text-stone-100">
+                                  {participant.score}/100
+                                </div>
+                              </div>
+                              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                <div>
+                                  <div className="text-xs font-medium uppercase text-green-300">Did Better</div>
+                                  <ul className="mt-1 space-y-1">
+                                    {participant.strengths.map((strength, i) => (
+                                      <li key={i} className="text-sm text-stone-300">- {strength}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                                <div>
+                                  <div className="text-xs font-medium uppercase text-amber-300">Needs Improvement</div>
+                                  <ul className="mt-1 space-y-1">
+                                    {participant.gaps.map((gap, i) => (
+                                      <li key={i} className="text-sm text-stone-300">- {gap}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
                     {aggregateSynthesis.commonThemes?.length > 0 && (
                       <div>
                         <h4 className="text-sm font-medium text-stone-400 mb-2">Common Themes</h4>

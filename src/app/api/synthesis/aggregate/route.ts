@@ -52,6 +52,121 @@ function getTranscript(interview: StoredInterview) {
         : [];
 }
 
+function getProfileValue(interview: StoredInterview, fieldName: string) {
+  const field = interview.participantProfile?.fields?.find((item: any) => {
+    const key = `${item?.fieldId || item?.id || item?.label || ''}`.toLowerCase();
+    return key.includes(fieldName) && item?.value;
+  });
+
+  return typeof field?.value === 'string' ? field.value.trim() : null;
+}
+
+function getParticipantName(interview: StoredInterview, fallbackIndex: number) {
+  return interview.participantName ||
+    getProfileValue(interview, 'name') ||
+    `Participant ${fallbackIndex + 1}`;
+}
+
+function countMatches(text: string, patterns: RegExp[]) {
+  return patterns.reduce((count, pattern) => count + (text.match(pattern)?.length || 0), 0);
+}
+
+function buildParticipantComparison(interviews: StoredInterview[]): AggregateSynthesisResult['participantComparisons'] {
+  const scoredParticipants = interviews.map((interview, index) => {
+    const transcript = getTranscript(interview);
+    const userMessages = transcript.filter((message: any) => message.role === 'user');
+    const answerText = userMessages.map((message: any) => String(message.content || '')).join(' ');
+    const words = answerText.split(/\s+/).filter(Boolean);
+    const averageAnswerLength = userMessages.length ? words.length / userMessages.length : 0;
+    const concreteExampleCount = countMatches(answerText, [
+      /\bproject\b/gi,
+      /\bexample\b/gi,
+      /\brecently\b/gi,
+      /\bbuilt\b/gi,
+      /\bused\b/gi,
+      /\bworked\b/gi,
+      /\bdeployed\b/gi,
+      /\bdebug\b/gi,
+      /\bpython\b/gi,
+      /\bmern\b/gi,
+      /\bapi\b/gi,
+      /\buser\b/gi
+    ]);
+    const reflectionCount = countMatches(answerText, [
+      /\bbecause\b/gi,
+      /\bhowever\b/gi,
+      /\bchallenge\b/gi,
+      /\bprefer\b/gi,
+      /\blearn\b/gi,
+      /\bvalidate\b/gi,
+      /\bunderstand\b/gi,
+      /\bdecision\b/gi
+    ]);
+    const synthesisStrength = [
+      ...(interview.synthesis?.keyInsights || []),
+      ...(interview.synthesis?.themes || []).map(theme => theme.theme),
+      interview.synthesis?.bottomLine || ''
+    ].join(' ').length;
+
+    const score = Math.min(100, Math.round(
+      Math.min(words.length, 500) * 0.08 +
+      Math.min(averageAnswerLength, 120) * 0.2 +
+      Math.min(concreteExampleCount, 12) * 4 +
+      Math.min(reflectionCount, 12) * 3 +
+      Math.min(synthesisStrength / 40, 15)
+    ));
+
+    const strengths: string[] = [];
+    const gaps: string[] = [];
+
+    if (words.length >= 120) {
+      strengths.push('Gave detailed responses with enough material for analysis.');
+    } else {
+      gaps.push('Responses were brief, giving less evidence for comparison.');
+    }
+
+    if (concreteExampleCount >= 3) {
+      strengths.push('Used concrete examples, tools, or project references.');
+    } else {
+      gaps.push('Could have improved by giving more concrete examples.');
+    }
+
+    if (reflectionCount >= 2) {
+      strengths.push('Explained reasoning, tradeoffs, or challenges behind their answers.');
+    } else {
+      gaps.push('Could have added more reflection on why choices or challenges mattered.');
+    }
+
+    if ((interview.synthesis?.themes?.length || 0) >= 2) {
+      strengths.push('Produced multiple analyzable themes.');
+    }
+
+    return {
+      participantName: getParticipantName(interview, index),
+      rank: 0,
+      score,
+      strengths: strengths.length ? strengths : ['Completed the interview and provided usable responses.'],
+      gaps: gaps.length ? gaps : ['No major response-quality gaps were detected.'],
+      summary: ''
+    };
+  });
+
+  return scoredParticipants
+    .sort((a, b) => b.score - a.score)
+    .map((participant, index, participants) => {
+      const leader = index === 0 && participants.length > 1;
+      const summary = leader
+        ? `${participant.participantName} provided the strongest interview evidence because their answers were more detailed, specific, and easier to connect to the research question.`
+        : `${participant.participantName} contributed useful data, but their evidence was comparatively ${participant.score < 50 ? 'lighter and would benefit from more detail' : 'less rich than the top-ranked response'}.`;
+
+      return {
+        ...participant,
+        rank: index + 1,
+        summary
+      };
+    });
+}
+
 export async function POST(request: Request) {
   try {
     // Verify researcher authentication
@@ -158,12 +273,18 @@ export async function POST(request: Request) {
       syntheses,
       interviews.length
     );
+    const participantComparisons = buildParticipantComparison(analyzedInterviews);
+    const topParticipantSummary = participantComparisons?.length
+      ? `${participantComparisons[0].participantName} performed best in terms of interview response quality, with a score of ${participantComparisons[0].score}/100. ${participantComparisons[0].strengths[0]}`
+      : undefined;
 
     // Build full result with metadata
     const fullResult: AggregateSynthesisResult = {
       studyId,
       interviewCount: interviews.length,
       ...aggregateResult,
+      participantComparisons,
+      topParticipantSummary,
       generatedAt: Date.now()
     };
 

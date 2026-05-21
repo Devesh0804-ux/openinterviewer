@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMAIL_TIMEOUT_MS = 12000;
@@ -73,6 +75,23 @@ function getConfiguredSender() {
     (process.env.EMAIL_USER ? `"BharatTech Team" <${process.env.EMAIL_USER}>` : "");
 }
 
+function hasResendCredentials() {
+  return Boolean(process.env.RESEND_API_KEY?.trim());
+}
+
+function hasGmailSmtpCredentials() {
+  return Boolean(process.env.EMAIL_USER?.trim() && process.env.EMAIL_PASS?.trim());
+}
+
+function hasGmailApiCredentials() {
+  return Boolean(
+    process.env.GMAIL_CLIENT_ID?.trim() &&
+    process.env.GMAIL_CLIENT_SECRET?.trim() &&
+    process.env.GMAIL_REFRESH_TOKEN?.trim() &&
+    process.env.EMAIL_USER?.trim()
+  );
+}
+
 function getGmailCredentials() {
   const user = process.env.EMAIL_USER?.trim();
   const pass = process.env.EMAIL_PASS?.replace(/\s+/g, "");
@@ -98,6 +117,24 @@ function getGmailApiCredentials() {
   }
 
   return { clientId, clientSecret, refreshToken, user };
+}
+
+function getResendCredentials() {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  const from = getConfiguredSender();
+
+  if (!apiKey) {
+    return null;
+  }
+
+  if (!from) {
+    throw new EmailSendError(
+      "Email sender is not configured. Set EMAIL_FROM to a verified sender address.",
+      503
+    );
+  }
+
+  return { apiKey, from };
 }
 
 function encodeBase64Url(value: string) {
@@ -173,8 +210,8 @@ async function getGmailAccessToken() {
 
   if (!response.ok || !data.access_token) {
     throw new EmailSendError(
-      data?.error_description || data?.error || "Failed to get Gmail API access token.",
-      response.status || 500
+      explainGmailApiAuthError(data?.error_description || data?.error),
+      502
     );
   }
 
@@ -182,6 +219,16 @@ async function getGmailAccessToken() {
     accessToken: String(data.access_token),
     user: credentials.user
   };
+}
+
+function explainGmailApiAuthError(message: unknown) {
+  const rawMessage = typeof message === "string" ? message : "";
+
+  if (/unauthorized|invalid_client|invalid_grant|invalid/i.test(rawMessage)) {
+    return "Gmail API authentication failed. Reconnect the Gmail OAuth credentials, or remove the GMAIL_* variables and use EMAIL_USER with a Gmail App Password in EMAIL_PASS.";
+  }
+
+  return rawMessage || "Failed to get Gmail API access token.";
 }
 
 async function sendWithGmailApi(emailList: string[], linkUrl: string) {
@@ -212,8 +259,36 @@ async function sendWithGmailApi(emailList: string[], linkUrl: string) {
 
     if (!response.ok) {
       throw new EmailSendError(
-        data?.error?.message || "Gmail API rejected the email request.",
-        response.status || 500
+        response.status === 401
+          ? "Gmail API authentication failed. Reconnect the Gmail OAuth credentials."
+          : data?.error?.message || "Gmail API rejected the email request.",
+        response.status === 401 ? 502 : response.status || 500
+      );
+    }
+  }));
+
+  return true;
+}
+
+async function sendWithResend(emailList: string[], linkUrl: string) {
+  const credentials = getResendCredentials();
+  if (!credentials) return false;
+
+  const resend = new Resend(credentials.apiKey);
+
+  await Promise.all(emailList.map(async (email) => {
+    const { error } = await resend.emails.send({
+      from: credentials.from,
+      to: email,
+      subject: EMAIL_SUBJECT,
+      html: buildInvitationEmail(linkUrl, email),
+      text: buildInvitationText(linkUrl, email),
+    });
+
+    if (error) {
+      throw new EmailSendError(
+        error.message || "Resend rejected the email request.",
+        502
       );
     }
   }));
@@ -284,6 +359,54 @@ async function sendWithGmailSmtp(emailList: string[], linkUrl: string) {
   throw new EmailSendError(explainSmtpError(lastError), 504);
 }
 
+function summarizeProviderError(provider: string, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return `${provider}: ${message}`;
+}
+
+async function sendInvitations(emailList: string[], linkUrl: string) {
+  const providerErrors: string[] = [];
+
+  if (hasResendCredentials()) {
+    try {
+      if (await sendWithResend(emailList, linkUrl)) return;
+    } catch (error) {
+      console.error("Resend send failed:", error);
+      providerErrors.push(summarizeProviderError("Resend", error));
+    }
+  }
+
+  if (hasGmailApiCredentials()) {
+    try {
+      if (await sendWithGmailApi(emailList, linkUrl)) return;
+    } catch (error) {
+      console.error("Gmail API send failed:", error);
+      providerErrors.push(summarizeProviderError("Gmail API", error));
+    }
+  }
+
+  if (hasGmailSmtpCredentials()) {
+    try {
+      if (await sendWithGmailSmtp(emailList, linkUrl)) return;
+    } catch (error) {
+      console.error("Gmail SMTP send failed:", error);
+      providerErrors.push(summarizeProviderError("Gmail SMTP", error));
+    }
+  }
+
+  if (providerErrors.length > 0) {
+    throw new EmailSendError(
+      `Unable to send email with the configured provider${providerErrors.length === 1 ? "" : "s"}. ${providerErrors.join(" ")}`,
+      502
+    );
+  }
+
+  throw new EmailSendError(
+    "Email is not configured. Set RESEND_API_KEY and EMAIL_FROM, or set EMAIL_USER and EMAIL_PASS for Gmail.",
+    503
+  );
+}
+
 export async function POST(req: Request) {
   try {
     const isAuthorized = await verifyAuth();
@@ -321,7 +444,16 @@ export async function POST(req: Request) {
       );
     }
 
-    const url = new URL(link);
+    let url: URL;
+    try {
+      url = new URL(link);
+    } catch {
+      return NextResponse.json(
+        { error: "Interview link must be a valid web URL" },
+        { status: 400 }
+      );
+    }
+
     if (!["http:", "https:"].includes(url.protocol)) {
       return NextResponse.json(
         { error: "Interview link must be a valid web URL" },
@@ -330,11 +462,7 @@ export async function POST(req: Request) {
     }
 
     const linkUrl = url.toString();
-    const sentWithGmailApi = await sendWithGmailApi(emailList, linkUrl);
-
-    if (!sentWithGmailApi) {
-      await sendWithGmailSmtp(emailList, linkUrl);
-    }
+    await sendInvitations(emailList, linkUrl);
 
     return NextResponse.json({ success: true, sent: emailList.length });
   } catch (error) {
