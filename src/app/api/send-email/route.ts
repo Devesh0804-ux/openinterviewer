@@ -74,11 +74,23 @@ BharatTech Team
 }
 
 function getConfiguredSender() {
-  const emailFrom = stripEnvQuotes(process.env.EMAIL_FROM);
-  const emailUser = stripEnvQuotes(process.env.EMAIL_USER);
+  const emailFrom = getEnv("EMAIL_FROM");
+  const emailUser = getEnv("EMAIL_USER");
+
+  if (emailFrom && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailFrom)) {
+    return `"BharatTech Team" <${emailFrom}>`;
+  }
 
   if (emailFrom?.includes("@")) {
     return emailFrom;
+  }
+
+  if (emailFrom) {
+    const domainMatch = emailFrom.match(/(?:^|\s)([a-z0-9-]+(?:\.[a-z0-9-]+)+)$/i);
+    if (domainMatch) {
+      const displayName = emailFrom.slice(0, domainMatch.index).trim() || "BharatTech Team";
+      return `"${displayName.replace(/"/g, "")}" <interviews@${domainMatch[1].toLowerCase()}>`;
+    }
   }
 
   if (emailFrom && emailUser) {
@@ -89,7 +101,7 @@ function getConfiguredSender() {
 }
 
 function hasResendCredentials() {
-  return Boolean(process.env.RESEND_API_KEY?.trim());
+  return Boolean(getEnv("RESEND_API_KEY"));
 }
 
 function hasGmailSmtpCredentials() {
@@ -106,8 +118,8 @@ function hasGmailApiCredentials() {
 }
 
 function getGmailCredentials() {
-  const user = process.env.EMAIL_USER?.trim();
-  const pass = process.env.EMAIL_PASS?.replace(/\s+/g, "");
+  const user = getEnv("EMAIL_USER");
+  const pass = getEnv("EMAIL_PASS")?.replace(/\s+/g, "");
 
   if (!user || !pass) {
     throw new EmailSendError(
@@ -121,6 +133,10 @@ function getGmailCredentials() {
 
 function stripEnvQuotes(value: string | undefined) {
   return value?.trim().replace(/^['"]|['"]$/g, "");
+}
+
+function getEnv(name: string) {
+  return stripEnvQuotes(process.env[name] || process.env[name.toLowerCase()]);
 }
 
 function getGmailApiCredentials() {
@@ -137,7 +153,7 @@ function getGmailApiCredentials() {
 }
 
 function getResendCredentials() {
-  const apiKey = process.env.RESEND_API_KEY?.trim();
+  const apiKey = getEnv("RESEND_API_KEY");
   const from = getConfiguredSender();
 
   if (!apiKey) {
@@ -390,7 +406,9 @@ function summarizeProviderError(provider: string, error: unknown) {
 
 function getEmailSetupMessage(providerErrors: string[]) {
   if (hasResendCredentials()) {
-    return "Email sending is not configured correctly. Check RESEND_API_KEY and make sure EMAIL_FROM is a verified sender.";
+    return providerErrors.length > 0
+      ? providerErrors.join(" ")
+      : "Email sending is not configured correctly. Check RESEND_API_KEY and make sure EMAIL_FROM is a verified sender in Resend.";
   }
 
   if (hasGmailApiCredentials()) {
@@ -405,7 +423,7 @@ function getEmailSetupMessage(providerErrors: string[]) {
     return "Email sending failed. Check the configured email provider credentials.";
   }
 
-  return "Email is not configured. Set RESEND_API_KEY and EMAIL_FROM, or configure Gmail API OAuth with GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, and EMAIL_USER.";
+  return "Email is not configured. Set RESEND_API_KEY and EMAIL_FROM in Render, then restart the service.";
 }
 
 async function sendInvitations(emailList: string[], linkUrl: string) {
