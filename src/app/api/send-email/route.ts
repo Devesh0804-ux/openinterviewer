@@ -6,6 +6,16 @@ import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_TIMEOUT_MS = 12000;
+
+class EmailSendError extends Error {
+  status: number;
+
+  constructor(message: string, status = 500) {
+    super(message);
+    this.status = status;
+  }
+}
 
 async function verifyAuth() {
   const cookieStore = await cookies();
@@ -57,6 +67,88 @@ Regards,
 BharatTech Team`;
 }
 
+function getConfiguredSender() {
+  return process.env.EMAIL_FROM ||
+    (process.env.EMAIL_USER ? `"BharatTech Team" <${process.env.EMAIL_USER}>` : "");
+}
+
+function getGmailCredentials() {
+  const user = process.env.EMAIL_USER?.trim();
+  const pass = process.env.EMAIL_PASS?.replace(/\s+/g, "");
+
+  if (!user || !pass) {
+    throw new EmailSendError(
+      "Email is not configured. Set EMAIL_USER and EMAIL_PASS to a Gmail address and Gmail App Password.",
+      503
+    );
+  }
+
+  return { user, pass };
+}
+
+function createGmailTransport(port: 465 | 587) {
+  const { user, pass } = getGmailCredentials();
+
+  return nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port,
+    secure: port === 465,
+    requireTLS: port === 587,
+    connectionTimeout: EMAIL_TIMEOUT_MS,
+    greetingTimeout: EMAIL_TIMEOUT_MS,
+    socketTimeout: EMAIL_TIMEOUT_MS,
+    family: 4,
+    auth: {
+      user,
+      pass,
+    },
+  } as nodemailer.TransportOptions);
+}
+
+function explainSmtpError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (/invalid login|authentication failed|username and password|EAUTH/i.test(message)) {
+    return "Gmail authentication failed. Use a Gmail App Password for EMAIL_PASS, not your normal Gmail password.";
+  }
+
+  if (/timeout|ETIMEDOUT|ESOCKET|ECONNECTION|ECONNREFUSED|ENETUNREACH/i.test(message)) {
+    return "Gmail SMTP connection timed out from the server. On Render, use RESEND_API_KEY for reliable email delivery, or check that outbound SMTP is allowed.";
+  }
+
+  return message || "Failed to send email through Gmail SMTP.";
+}
+
+async function sendWithGmailSmtp(emailList: string[], linkUrl: string) {
+  const from = getConfiguredSender();
+  let lastError: unknown = null;
+
+  for (const port of [587, 465] as const) {
+    try {
+      const transporter = createGmailTransport(port);
+
+      await Promise.all(
+        emailList.map((email: string) =>
+          transporter.sendMail({
+            from,
+            to: email,
+            subject: "You're invited to BharatTech",
+            html: buildInvitationEmail(linkUrl, email),
+            text: buildInvitationText(linkUrl, email),
+          })
+        )
+      );
+
+      return true;
+    } catch (error) {
+      console.error(`Gmail SMTP send failed on port ${port}:`, error);
+      lastError = error;
+    }
+  }
+
+  throw new EmailSendError(explainSmtpError(lastError), 504);
+}
+
 export async function POST(req: Request) {
   try {
     const isAuthorized = await verifyAuth();
@@ -103,58 +195,19 @@ export async function POST(req: Request) {
     }
 
     const linkUrl = url.toString();
-
-    if (process.env.RESEND_API_KEY) {
-      const { Resend } = await import("resend");
-      const resend = new Resend(process.env.RESEND_API_KEY);
-
-      const result = await resend.emails.send({
-        from: process.env.EMAIL_FROM || "Research Team <onboarding@resend.dev>",
-        to: emailList,
-        subject: "You're invited to BharatTech",
-        html: buildInvitationEmail(linkUrl, emailList[0]),
-        text: buildInvitationText(linkUrl, emailList[0]),
-      });
-
-      if (result.error) {
-        throw new Error(result.error.message);
-      }
-    } else if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-      const transporter = nodemailer.createTransport({
-        host: "smtp.gmail.com",
-        port: 465,
-        secure: true,
-        connectionTimeout: 10000,
-        greetingTimeout: 10000,
-        socketTimeout: 15000,
-        family: 4,
-        auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASS,
-        },
-      } as nodemailer.TransportOptions);
-
-      await Promise.all(
-        emailList.map((email: string) =>
-          transporter.sendMail({
-            from: process.env.EMAIL_FROM || `"Research Team" <${process.env.EMAIL_USER}>`,
-            to: email,
-            subject: "You're invited to BharatTech",
-            html: buildInvitationEmail(linkUrl, email),
-            text: buildInvitationText(linkUrl, email),
-          })
-        )
-      );
-    } else {
-      return NextResponse.json(
-        { error: "Email is not configured. Set RESEND_API_KEY or EMAIL_USER and EMAIL_PASS." },
-        { status: 503 }
-      );
-    }
+    await sendWithGmailSmtp(emailList, linkUrl);
 
     return NextResponse.json({ success: true, sent: emailList.length });
   } catch (error) {
     console.error("Email error:", error);
+
+    if (error instanceof EmailSendError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to send emails" },
       { status: 500 }
