@@ -10,6 +10,8 @@ export const runtime = "nodejs";
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMAIL_TIMEOUT_MS = 12000;
 const EMAIL_SUBJECT = "You're invited to BharatTech";
+const HOSTED_SMTP_DISABLED =
+  process.env.RENDER === "true" || Boolean(process.env.RENDER_SERVICE_ID);
 
 class EmailSendError extends Error {
   status: number;
@@ -71,8 +73,18 @@ BharatTech Team`;
 }
 
 function getConfiguredSender() {
-  return process.env.EMAIL_FROM ||
-    (process.env.EMAIL_USER ? `"BharatTech Team" <${process.env.EMAIL_USER}>` : "");
+  const emailFrom = stripEnvQuotes(process.env.EMAIL_FROM);
+  const emailUser = stripEnvQuotes(process.env.EMAIL_USER);
+
+  if (emailFrom?.includes("@")) {
+    return emailFrom;
+  }
+
+  if (emailFrom && emailUser) {
+    return `"${emailFrom.replace(/"/g, "")}" <${emailUser}>`;
+  }
+
+  return emailUser ? `"BharatTech Team" <${emailUser}>` : "";
 }
 
 function hasResendCredentials() {
@@ -106,11 +118,15 @@ function getGmailCredentials() {
   return { user, pass };
 }
 
+function stripEnvQuotes(value: string | undefined) {
+  return value?.trim().replace(/^['"]|['"]$/g, "");
+}
+
 function getGmailApiCredentials() {
-  const clientId = process.env.GMAIL_CLIENT_ID?.trim();
-  const clientSecret = process.env.GMAIL_CLIENT_SECRET?.trim();
-  const refreshToken = process.env.GMAIL_REFRESH_TOKEN?.trim();
-  const user = process.env.EMAIL_USER?.trim();
+  const clientId = stripEnvQuotes(process.env.GMAIL_CLIENT_ID);
+  const clientSecret = stripEnvQuotes(process.env.GMAIL_CLIENT_SECRET);
+  const refreshToken = stripEnvQuotes(process.env.GMAIL_REFRESH_TOKEN);
+  const user = stripEnvQuotes(process.env.EMAIL_USER);
 
   if (!clientId || !clientSecret || !refreshToken || !user) {
     return null;
@@ -225,7 +241,7 @@ function explainGmailApiAuthError(message: unknown) {
   const rawMessage = typeof message === "string" ? message : "";
 
   if (/unauthorized|invalid_client|invalid_grant|invalid/i.test(rawMessage)) {
-    return "Gmail API authentication failed. Reconnect the Gmail OAuth credentials, or remove the GMAIL_* variables and use EMAIL_USER with a Gmail App Password in EMAIL_PASS.";
+    return "Gmail API authentication failed. Generate a new Gmail refresh token for the configured OAuth client, then update GMAIL_REFRESH_TOKEN on Render.";
   }
 
   return rawMessage || "Failed to get Gmail API access token.";
@@ -323,13 +339,20 @@ function explainSmtpError(error: unknown) {
   }
 
   if (/timeout|ETIMEDOUT|ESOCKET|ECONNECTION|ECONNREFUSED|ENETUNREACH/i.test(message)) {
-    return "Gmail SMTP connection timed out from Render. Add GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN to send through Gmail API over HTTPS, or enable outbound SMTP on your hosting service.";
+    return "Gmail SMTP is not reachable from this hosting environment. Use Gmail API OAuth or Resend instead.";
   }
 
   return message || "Failed to send email through Gmail SMTP.";
 }
 
 async function sendWithGmailSmtp(emailList: string[], linkUrl: string) {
+  if (HOSTED_SMTP_DISABLED) {
+    throw new EmailSendError(
+      "Gmail SMTP is disabled on Render. Use Gmail API OAuth or Resend instead.",
+      503
+    );
+  }
+
   const from = getConfiguredSender();
   let lastError: unknown = null;
 
@@ -364,6 +387,26 @@ function summarizeProviderError(provider: string, error: unknown) {
   return `${provider}: ${message}`;
 }
 
+function getEmailSetupMessage(providerErrors: string[]) {
+  if (hasGmailApiCredentials()) {
+    return "Email sending is not configured correctly. The Gmail OAuth refresh token is invalid or expired. Create a new refresh token with the Gmail send scope and update GMAIL_REFRESH_TOKEN on Render.";
+  }
+
+  if (hasResendCredentials()) {
+    return "Email sending is not configured correctly. Check RESEND_API_KEY and make sure EMAIL_FROM is a verified sender.";
+  }
+
+  if (HOSTED_SMTP_DISABLED && hasGmailSmtpCredentials()) {
+    return "Email sending is not configured correctly. Render cannot use Gmail SMTP here, so configure Gmail API OAuth or Resend.";
+  }
+
+  if (providerErrors.length > 0) {
+    return "Email sending failed. Check the configured email provider credentials.";
+  }
+
+  return "Email is not configured. Set RESEND_API_KEY and EMAIL_FROM, or configure Gmail API OAuth with GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, and EMAIL_USER.";
+}
+
 async function sendInvitations(emailList: string[], linkUrl: string) {
   const providerErrors: string[] = [];
 
@@ -395,16 +438,10 @@ async function sendInvitations(emailList: string[], linkUrl: string) {
   }
 
   if (providerErrors.length > 0) {
-    throw new EmailSendError(
-      `Unable to send email with the configured provider${providerErrors.length === 1 ? "" : "s"}. ${providerErrors.join(" ")}`,
-      502
-    );
+    throw new EmailSendError(getEmailSetupMessage(providerErrors), 502);
   }
 
-  throw new EmailSendError(
-    "Email is not configured. Set RESEND_API_KEY and EMAIL_FROM, or set EMAIL_USER and EMAIL_PASS for Gmail.",
-    503
-  );
+  throw new EmailSendError(getEmailSetupMessage(providerErrors), 503);
 }
 
 export async function POST(req: Request) {
