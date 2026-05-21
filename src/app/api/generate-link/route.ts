@@ -34,6 +34,21 @@ const getSecret = () => {
   return new TextEncoder().encode(secret);
 };
 
+function getRequestOrigin(request: Request) {
+  const forwardedHost = request.headers.get('x-forwarded-host');
+  const forwardedProto = request.headers.get('x-forwarded-proto');
+  const host = forwardedHost || request.headers.get('host');
+
+  if (host) {
+    const proto = forwardedProto || (host.includes('localhost') || host.startsWith('127.0.0.1')
+      ? 'http'
+      : 'https');
+    return `${proto}://${host}`;
+  }
+
+  return new URL(request.url).origin;
+}
+
 export async function POST(request: Request) {
   try {
     // Require admin session - only researchers can generate participant links
@@ -102,10 +117,9 @@ export async function POST(request: Request) {
 
     const token = await jwtBuilder.sign(secret);
 
-    // Build the full URL
-    const requestOrigin = new URL(request.url).origin;
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL
-      || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : requestOrigin);
+    // Build the full URL from the host that opened the app.
+    // This keeps localhost links local and Render links on the Render domain.
+    const baseUrl = getRequestOrigin(request);
 
     const participantUrl = `${baseUrl}/p/${token}`;
 

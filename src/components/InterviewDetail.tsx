@@ -248,6 +248,11 @@ const InterviewDetail: React.FC<InterviewDetailProps> = ({ interviewId }) => {
     });
   };
 
+  const isPlaceholderAnalysis = (value: unknown) => {
+    return typeof value === 'string' &&
+      /analysis pending|synthesis in progress|no .* extracted yet/i.test(value);
+  };
+
 
   if (loading) {
     return (
@@ -280,11 +285,18 @@ const InterviewDetail: React.FC<InterviewDetailProps> = ({ interviewId }) => {
 
   const participantName = nameField?.value || "Participant";
   const synthesis = interview.synthesis;
-  const statedPreferences = synthesis?.statedPreferences || [];
-  const revealedPreferences = synthesis?.revealedPreferences || [];
-  const themes = synthesis?.themes || [];
+  const statedPreferences = (synthesis?.statedPreferences || [])
+    .filter(item => !isPlaceholderAnalysis(item));
+  const revealedPreferences = (synthesis?.revealedPreferences || [])
+    .filter(item => !isPlaceholderAnalysis(item));
+  const themes = (synthesis?.themes || [])
+    .filter(theme => !isPlaceholderAnalysis(theme.theme) && !isPlaceholderAnalysis(theme.evidence));
   const contradictions = synthesis?.contradictions || [];
-  const keyInsights = synthesis?.keyInsights || [];
+  const keyInsights = (synthesis?.keyInsights || [])
+    .filter(item => !isPlaceholderAnalysis(item));
+  const bottomLine = synthesis?.bottomLine && !isPlaceholderAnalysis(synthesis.bottomLine)
+    ? synthesis.bottomLine
+    : keyInsights[0] || 'Analysis is being regenerated from the interview transcript.';
 
   return (
     <div className="min-h-screen bg-gray-50 px-4 py-5 sm:p-6 lg:p-8">
@@ -431,7 +443,7 @@ const InterviewDetail: React.FC<InterviewDetailProps> = ({ interviewId }) => {
                       Key Insight
                     </span>
                   </div>
-                  <p className="text-lg sm:text-xl font-medium break-words">{synthesis.bottomLine || 'No key insight generated yet.'}</p>
+                  <p className="text-lg sm:text-xl font-medium break-words">{bottomLine}</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
