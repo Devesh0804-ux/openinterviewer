@@ -8,8 +8,8 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getInterviewProvider } from '@/lib/providers';
 import { verifySessionToken, SESSION_COOKIE_NAME } from '@/lib/auth';
-import { getStudy, getStudyInterviews, isKVAvailable } from '@/lib/kv';
-import { AggregateSynthesisResult, SynthesisResult } from '@/types';
+import { getStudy, getStudyInterviews, isKVAvailable, saveInterview } from '@/lib/kv';
+import { AggregateSynthesisResult, StoredInterview, SynthesisResult } from '@/types';
 
 // Verify admin session
 async function verifyAuth() {
@@ -40,6 +40,16 @@ function hasUsableSynthesis(synthesis: SynthesisResult | null | undefined): synt
   );
 
   return Boolean(hasRealKeyInsights || hasRealBottomLine || synthesis.themes?.length);
+}
+
+function getTranscript(interview: StoredInterview) {
+  return Array.isArray(interview.transcript) && interview.transcript.length
+    ? interview.transcript
+    : Array.isArray(interview.messages) && interview.messages.length
+      ? interview.messages
+      : Array.isArray(interview.history)
+        ? interview.history
+        : [];
 }
 
 export async function POST(request: Request) {
@@ -89,8 +99,49 @@ export async function POST(request: Request) {
       );
     }
 
-    // Extract synthesis results from interviews
-    const syntheses: SynthesisResult[] = interviews
+    // Get the configured AI provider
+    // Priority: studyConfig.aiProvider > env.AI_PROVIDER > 'gemini'
+    const provider = getInterviewProvider(study.config);
+
+    // Generate or repair missing per-interview analyses before aggregating.
+    const analyzedInterviews = await Promise.all(
+      interviews.map(async (interview) => {
+        if (hasUsableSynthesis(interview.synthesis)) return interview;
+
+        const transcript = getTranscript(interview);
+        if (!transcript.length) return interview;
+
+        const synthesis = await provider.synthesizeInterview(
+          transcript,
+          study.config,
+          interview.behaviorData || {
+            timePerTopic: {},
+            messagesPerTopic: {},
+            topicsExplored: [],
+            contradictions: []
+          },
+          interview.participantProfile || null
+        );
+
+        const repairedInterview = {
+          ...interview,
+          transcript,
+          messages: Array.isArray(interview.messages) && interview.messages.length
+            ? interview.messages
+            : transcript,
+          history: Array.isArray(interview.history) && interview.history.length
+            ? interview.history
+            : transcript,
+          synthesis
+        };
+
+        await saveInterview(repairedInterview);
+        return repairedInterview;
+      })
+    );
+
+    // Extract synthesis results from all analyzed interviews.
+    const syntheses: SynthesisResult[] = analyzedInterviews
       .map((i: any) => i.synthesis)
       .filter(hasUsableSynthesis);
 
@@ -100,10 +151,6 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-
-    // Get the configured AI provider
-    // Priority: studyConfig.aiProvider > env.AI_PROVIDER > 'gemini'
-    const provider = getInterviewProvider(study.config);
 
     // Generate aggregate synthesis
     const aggregateResult = await provider.synthesizeAggregate(

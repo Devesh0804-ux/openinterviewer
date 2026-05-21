@@ -298,8 +298,8 @@ const InterviewDetail: React.FC<InterviewDetailProps> = ({ interviewId }) => {
     ? synthesis.bottomLine
     : keyInsights[0] || 'Analysis is being regenerated from the interview transcript.';
 
-  return (
-    <div className="min-h-screen bg-gray-50 px-4 py-5 sm:p-6 lg:p-8">
+    return (
+    <div className="min-h-screen bg-slate-100 px-4 py-5 sm:p-6 lg:p-8">
       <div className="w-full max-w-5xl mx-auto">
         {/* Header */}
         <motion.div
@@ -379,7 +379,7 @@ const InterviewDetail: React.FC<InterviewDetailProps> = ({ interviewId }) => {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm hover:shadow-md transition"
+            className="bg-white rounded-xl border border-slate-200 p-4 sm:p-6 shadow-sm hover:shadow-md transition"
           >
             <div className="space-y-4">
               {interview.messages?.map((msg: any, i: number) => (
@@ -390,12 +390,12 @@ const InterviewDetail: React.FC<InterviewDetailProps> = ({ interviewId }) => {
                   <div
                     className={`max-w-[92%] sm:max-w-[80%] rounded-2xl p-3 sm:p-4 ${
                       msg.role === 'user'
-                        ? 'bg-blue-50 border border-blue-200 text-gray-900 rounded-br-md'
-                        : 'bg-gray-100 border border-gray-200 text-gray-900 rounded-bl-md'
+                        ? 'bg-blue-50 border border-blue-200 text-slate-950 rounded-br-md'
+                        : 'bg-white border border-slate-200 text-slate-950 rounded-bl-md shadow-sm'
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-2 text-xs text-gray-500">
-                      {msg.role === 'assistant' ? (
+                      {msg.role === 'assistant' || msg.role === 'ai' ? (
                         <>
                           <Bot size={14} />
                           Interviewer

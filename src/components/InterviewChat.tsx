@@ -84,8 +84,11 @@ const InterviewChat: React.FC = () => {
   const [initialized, setInitialized] = useState(false);
   const [showFinishOption, setShowFinishOption] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
+  const [terminationReason, setTerminationReason] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const greetingSent = useRef(false);
+  const interviewActiveRef = useRef(false);
+  const terminatedRef = useRef(false);
 
   const [onboardingStep, setOnboardingStep] = useState<
     "start" | "name" | "done"
@@ -102,6 +105,75 @@ const InterviewChat: React.FC = () => {
       setShowFinishOption(true);
     }
   }, [questionProgress.currentPhase]);
+
+  useEffect(() => {
+    interviewActiveRef.current =
+      viewMode === 'participant' &&
+      onboardingStep !== 'start' &&
+      !isFinishing &&
+      !terminationReason;
+  }, [viewMode, onboardingStep, isFinishing, terminationReason]);
+
+  const terminateInterview = (reason: string) => {
+    if (terminatedRef.current) return;
+
+    terminatedRef.current = true;
+    interviewActiveRef.current = false;
+    setTerminationReason(reason);
+    setAiThinking(false);
+    completeInterview();
+  };
+
+  const requestInterviewFullscreen = async () => {
+    if (typeof document === 'undefined') return;
+    if (document.fullscreenElement) return;
+
+    try {
+      await document.documentElement.requestFullscreen?.();
+    } catch (error) {
+      console.warn('Fullscreen request was blocked by the browser:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (viewMode !== 'participant') return;
+
+    const terminateIfActive = (reason: string) => {
+      if (interviewActiveRef.current) {
+        terminateInterview(reason);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        terminateIfActive('The interview was terminated because the tab was switched or minimized.');
+      }
+    };
+
+    const handleBlur = () => {
+      window.setTimeout(() => {
+        if (!document.hasFocus()) {
+          terminateIfActive('The interview was terminated because the browser window lost focus.');
+        }
+      }, 200);
+    };
+
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        terminateIfActive('The interview was terminated because fullscreen mode was exited.');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, [viewMode, onboardingStep, isFinishing, terminationReason]);
 
   // useEffect(() => {
 
@@ -217,6 +289,7 @@ const InterviewChat: React.FC = () => {
 
     const text = textOverride || input;
     if (!text.trim()) return;
+    if (terminationReason) return;
 
     // ✅ ADD USER MESSAGE FIRST (IMPORTANT)
     const userMsg: InterviewMessage = {
@@ -234,6 +307,8 @@ const InterviewChat: React.FC = () => {
       const positive = ["yes", "y", "ok", "sure", "start"];
 
       if (positive.some(p => text.toLowerCase().includes(p))) {
+        await requestInterviewFullscreen();
+
         addMessage({
           id: `msg-${Date.now()}`,
           role: "ai",
@@ -446,7 +521,7 @@ const InterviewChat: React.FC = () => {
 
 const totalQuestions = studyConfig?.coreQuestions?.length ?? 0;
   const questionsCompleted = questionProgress.questionsAsked.length;
-  const isComplete = isFinishing;
+  const isComplete = isFinishing || Boolean(terminationReason);
 
   const getProgressDisplay = () => {
     if (questionProgress.currentPhase === 'background') {
@@ -471,10 +546,26 @@ const totalQuestions = studyConfig?.coreQuestions?.length ?? 0;
     );
   }
 
+  if (terminationReason) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100 px-4 text-slate-900">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <h1 className="text-xl font-semibold">Interview Terminated</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-600">
+            {terminationReason}
+          </p>
+          <p className="mt-3 text-xs text-slate-500">
+            Please contact the research team if you need a new participant link.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-[100dvh] min-h-[100dvh] flex-col bg-gray-50">
+    <div className="flex h-[100dvh] min-h-[100dvh] flex-col bg-slate-100">
       {/* Header */}
-      <div className="min-h-16 flex items-center justify-between px-4 sm:px-6 py-3 border-b border-gray-200 bg-white">
+      <div className="min-h-16 flex items-center justify-between px-4 sm:px-6 py-3 border-b border-slate-200 bg-white/95 shadow-sm">
         <div className="flex items-center gap-3 min-w-0">
           {/* Logo */}
           <Image
@@ -485,8 +576,8 @@ const totalQuestions = studyConfig?.coreQuestions?.length ?? 0;
             className="w-9 h-9 sm:w-10 sm:h-10 object-contain flex-shrink-0"
           />
           <div className="min-w-0">
-            <h1 className="font-semibold text-sm sm:text-base text-gray-900 truncate">{studyConfig.name}</h1>
-            <p className="text-xs text-gray-500">{getProgressDisplay()}</p>
+            <h1 className="font-semibold text-sm sm:text-base text-slate-950 truncate">{studyConfig.name}</h1>
+            <p className="text-xs text-slate-500">{getProgressDisplay()}</p>
           </div>
         </div>
       </div>
@@ -501,18 +592,12 @@ const totalQuestions = studyConfig?.coreQuestions?.length ?? 0;
             <div
               className={`max-w-[92%] sm:max-w-[80%] rounded-2xl p-3 sm:p-4 ${
                 msg.role === 'user'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-50 text-gray-900'
+                  ? 'bg-blue-100 border border-blue-200 text-slate-950 rounded-br-md'
+                  : 'bg-white border border-slate-200 text-slate-950 rounded-bl-md shadow-sm'
               }`}
             >
               <ReactMarkdown
-                className="
-                  text-sm sm:text-base 
-                  leading-7 
-                  font-medium 
-                  text-gray-900
-                  [&_*]:text-gray-900
-                "
+                className="text-sm sm:text-base leading-7 font-medium text-slate-950 [&_*]:text-slate-950"
               >
                 {msg.content}
               </ReactMarkdown>
@@ -522,7 +607,7 @@ const totalQuestions = studyConfig?.coreQuestions?.length ?? 0;
 
         {isAiThinking && (
           <div className="flex justify-start">
-            <div className="bg-white border border-gray-200 shadow-sm rounded-2xl p-4">
+            <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4 text-slate-700">
               <Loader2 size={16} className="animate-spin" />
               <span className="ml-2 text-sm">Thinking...</span>
             </div>
@@ -534,7 +619,7 @@ const totalQuestions = studyConfig?.coreQuestions?.length ?? 0;
 
       {/* Input */}
       {!isComplete && !isFinishing && (
-        <div className="p-3 sm:p-4 border-t border-gray-200 bg-white">
+        <div className="p-3 sm:p-4 border-t border-slate-200 bg-white/95">
           <div className="flex gap-2 sm:gap-3">
             <input
               type="text"
@@ -543,7 +628,7 @@ const totalQuestions = studyConfig?.coreQuestions?.length ?? 0;
               onKeyDown={(e) => e.key === 'Enter' && !isAiThinking && handleSend()}
               placeholder="Type your response..."
               disabled={isAiThinking}
-              className="min-w-0 flex-1 px-3 sm:px-4 py-3 bg-white border border-gray-200 text-gray-900 rounded-xl placeholder:text-gray-400"
+              className="min-w-0 flex-1 px-3 sm:px-4 py-3 bg-white border border-slate-300 text-slate-950 rounded-xl placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
             />
             <button
               onClick={() => handleSend()}

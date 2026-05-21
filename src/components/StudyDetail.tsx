@@ -396,6 +396,58 @@ const StudyDetail: React.FC<StudyDetailProps> = ({ studyId }) => {
                       </p>
                     </div>
 
+                    {aggregateSynthesis.commonThemes?.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium text-stone-400 mb-2">Common Themes</h4>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          {aggregateSynthesis.commonThemes.map((theme, i) => (
+                            <div key={i} className="bg-stone-800 rounded-lg p-3 border border-stone-700">
+                              <div className="font-medium text-stone-200">{theme.theme}</div>
+                              <div className="text-xs text-stone-500 mt-1">
+                                Seen {theme.frequency} time{theme.frequency === 1 ? '' : 's'}
+                              </div>
+                              {theme.representativeQuotes?.length > 0 && (
+                                <p className="text-sm text-stone-400 mt-2 line-clamp-3">
+                                  {theme.representativeQuotes[0]}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {aggregateSynthesis.divergentViews?.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium text-stone-400 mb-2">Divergent Views</h4>
+                        <div className="space-y-2">
+                          {aggregateSynthesis.divergentViews.map((view, i) => (
+                            <div key={i} className="bg-stone-800 rounded-lg p-3 border border-stone-700">
+                              <div className="font-medium text-stone-200">{view.topic}</div>
+                              <div className="mt-2 grid gap-2 text-sm text-stone-400 md:grid-cols-2">
+                                <p>{view.viewA}</p>
+                                <p>{view.viewB}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {aggregateSynthesis.researchImplications?.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium text-stone-400 mb-2">Research Implications</h4>
+                        <ul className="space-y-1">
+                          {aggregateSynthesis.researchImplications.map((item, i) => (
+                            <li key={i} className="text-stone-300 text-sm flex items-start gap-2">
+                              <span className="text-stone-500">-</span>
+                              {item}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
                     {/* Generate Follow-up Study Button */}
                     <div className="pt-4 border-t border-stone-700">
                       <button
