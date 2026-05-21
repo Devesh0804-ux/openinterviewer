@@ -33,34 +33,17 @@ async function verifyAuth() {
   return verifySessionToken(authCookie.value);
 }
 
-function buildInvitationEmail(link: string, recipientEmail: string) {
-  const displayName = recipientEmail.split('@')[0] || 'Participant';
-
-  return `
-    <div style="font-family: Arial, sans-serif; line-height:1.6; color:#202124; font-size:14px">
-      <p>Hi ${displayName},</p>
-
-      <p>You have been invited to participate in a BharatTech research interview.</p>
-
-      <p>
-        Interview Link:
-        <a href="${link}" style="color:#1155cc">${link}</a>
-      </p>
-
-      <p>Please open the link above to start your interview.</p>
-
-      <p>
-        Regards,<br/>
-        BharatTech Team
-      </p>
-    </div>
-  `;
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
-function buildInvitationText(link: string, recipientEmail: string) {
-  const displayName = recipientEmail.split('@')[0] || 'Participant';
-
-  return `Hi ${displayName},
+function buildInvitationText(link: string) {
+  return `Hi,
 
 You have been invited to participate in a BharatTech research interview.
 
@@ -70,6 +53,24 @@ Please open the link above to start your interview.
 
 Regards,
 BharatTech Team`;
+}
+
+function buildInvitationEmail(link: string) {
+  const safeLink = escapeHtml(link);
+
+  return `
+    <div style="font-family: Arial, sans-serif; line-height:1.5; color:#202124; font-size:14px; white-space:pre-line">Hi,
+
+You have been invited to participate in a BharatTech research interview.
+
+Interview Link: <a href="${safeLink}" style="color:#1155cc">${safeLink}</a>
+
+Please open the link above to start your interview.
+
+Regards,
+BharatTech Team
+    </div>
+  `;
 }
 
 function getConfiguredSender() {
@@ -258,8 +259,8 @@ async function sendWithGmailApi(emailList: string[], linkUrl: string) {
       email,
       from,
       EMAIL_SUBJECT,
-      buildInvitationText(linkUrl, email),
-      buildInvitationEmail(linkUrl, email)
+      buildInvitationText(linkUrl),
+      buildInvitationEmail(linkUrl)
     ));
 
     const response = await fetchWithTimeout("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
@@ -297,8 +298,8 @@ async function sendWithResend(emailList: string[], linkUrl: string) {
       from: credentials.from,
       to: email,
       subject: EMAIL_SUBJECT,
-      html: buildInvitationEmail(linkUrl, email),
-      text: buildInvitationText(linkUrl, email),
+      html: buildInvitationEmail(linkUrl),
+      text: buildInvitationText(linkUrl),
     });
 
     if (error) {
@@ -366,8 +367,8 @@ async function sendWithGmailSmtp(emailList: string[], linkUrl: string) {
             from,
             to: email,
             subject: EMAIL_SUBJECT,
-            html: buildInvitationEmail(linkUrl, email),
-            text: buildInvitationText(linkUrl, email),
+            html: buildInvitationEmail(linkUrl),
+            text: buildInvitationText(linkUrl),
           })
         )
       );
@@ -388,12 +389,12 @@ function summarizeProviderError(provider: string, error: unknown) {
 }
 
 function getEmailSetupMessage(providerErrors: string[]) {
-  if (hasGmailApiCredentials()) {
-    return "Email sending is not configured correctly. The Gmail OAuth refresh token is invalid or expired. Create a new refresh token with the Gmail send scope and update GMAIL_REFRESH_TOKEN on Render.";
-  }
-
   if (hasResendCredentials()) {
     return "Email sending is not configured correctly. Check RESEND_API_KEY and make sure EMAIL_FROM is a verified sender.";
+  }
+
+  if (hasGmailApiCredentials()) {
+    return "Email sending is not configured correctly. The Gmail OAuth refresh token is invalid or expired. Create a new refresh token with the Gmail send scope and update GMAIL_REFRESH_TOKEN on Render.";
   }
 
   if (HOSTED_SMTP_DISABLED && hasGmailSmtpCredentials()) {
@@ -419,23 +420,26 @@ async function sendInvitations(emailList: string[], linkUrl: string) {
     }
   }
 
-  if (hasGmailApiCredentials()) {
-    try {
-      if (await sendWithGmailApi(emailList, linkUrl)) return;
-    } catch (error) {
-      console.error("Gmail API send failed:", error);
-      providerErrors.push(summarizeProviderError("Gmail API", error));
-    }
-  }
-
-  if (hasGmailSmtpCredentials()) {
-    try {
-      if (await sendWithGmailSmtp(emailList, linkUrl)) return;
-    } catch (error) {
-      console.error("Gmail SMTP send failed:", error);
-      providerErrors.push(summarizeProviderError("Gmail SMTP", error));
-    }
-  }
+  // Gmail fallback is intentionally disabled for now.
+  // Keep this code here so it can be re-enabled later if Gmail OAuth/SMTP is needed.
+  //
+  // if (hasGmailApiCredentials()) {
+  //   try {
+  //     if (await sendWithGmailApi(emailList, linkUrl)) return;
+  //   } catch (error) {
+  //     console.error("Gmail API send failed:", error);
+  //     providerErrors.push(summarizeProviderError("Gmail API", error));
+  //   }
+  // }
+  //
+  // if (hasGmailSmtpCredentials()) {
+  //   try {
+  //     if (await sendWithGmailSmtp(emailList, linkUrl)) return;
+  //   } catch (error) {
+  //     console.error("Gmail SMTP send failed:", error);
+  //     providerErrors.push(summarizeProviderError("Gmail SMTP", error));
+  //   }
+  // }
 
   if (providerErrors.length > 0) {
     throw new EmailSendError(getEmailSetupMessage(providerErrors), 502);

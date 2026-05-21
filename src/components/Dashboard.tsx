@@ -81,35 +81,6 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const buildInvitationBody = (interviewLink: string) => `Hi,
-
-You have been invited to participate in a BharatTech research interview.
-
-Interview Link: ${interviewLink}
-
-Please open the link above to start your interview.
-
-Regards,
-BharatTech Team`;
-
-  const openEmailDraft = (emailList: string[], interviewLink: string) => {
-    const subject = "You're invited to BharatTech";
-    const body = buildInvitationBody(interviewLink);
-    const gmailUrl = new URL("https://mail.google.com/mail/");
-
-    gmailUrl.searchParams.set("view", "cm");
-    gmailUrl.searchParams.set("fs", "1");
-    gmailUrl.searchParams.set("to", emailList.join(","));
-    gmailUrl.searchParams.set("su", subject);
-    gmailUrl.searchParams.set("body", body);
-
-    const opened = window.open(gmailUrl.toString(), "_blank", "noopener,noreferrer");
-
-    if (!opened) {
-      window.location.href = `mailto:${encodeURIComponent(emailList.join(","))}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    }
-  };
-
   const handleSendEmail = async () => {
     if (!link) {
       setEmailStatus({ type: 'error', message: 'Generate an interview link before sending email.' });
@@ -131,8 +102,36 @@ BharatTech Team`;
       return;
     }
 
-    openEmailDraft(emailList, link);
-    setEmailStatus({ type: 'success', message: 'Email draft opened. Review it and click Send in Gmail.' });
+    setEmailSending(true);
+    setEmailStatus(null);
+
+    try {
+      const res = await fetch("/api/send-email", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          emails: emailList,
+          link: link
+        })
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        setEmailStatus({ type: 'success', message: `Email sent to ${emailList.length} participant${emailList.length === 1 ? '' : 's'}.` });
+        setParticipantEmail("");
+      } else {
+        setEmailStatus({ type: 'error', message: data.error || "Failed to send email." });
+      }
+    } catch (error) {
+      console.error(error);
+      setEmailStatus({ type: 'error', message: "Error sending email. Please try again." });
+    } finally {
+      setEmailSending(false);
+    }
   };
 
 
@@ -390,7 +389,7 @@ BharatTech Team`;
                   className="px-4 py-2 bg-stone-600 text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {emailSending ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} />}
-                  {emailSending ? 'Opening...' : 'Open Email Draft'}
+                  {emailSending ? 'Sending...' : 'Send via Email'}
                 </button>
               </>
             )}
