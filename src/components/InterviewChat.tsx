@@ -27,6 +27,61 @@ const phaseLabels: Record<InterviewPhase, string> = {
   'wrap-up': 'Wrapping up'
 };
 
+const TERMINATION_STORAGE_PREFIX = 'openinterviewer:terminated:';
+
+function getTerminationStorageKey(token: string | null | undefined) {
+  return token ? `${TERMINATION_STORAGE_PREFIX}${token}` : null;
+}
+
+function readStoredTermination(token: string | null | undefined) {
+  if (typeof window === 'undefined') return null;
+
+  const key = getTerminationStorageKey(token);
+  try {
+    return key ? window.localStorage.getItem(key) : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeTermination(token: string | null | undefined, reason: string) {
+  if (typeof window === 'undefined') return;
+
+  const key = getTerminationStorageKey(token);
+  try {
+    if (key) {
+      window.localStorage.setItem(key, reason);
+    }
+  } catch {
+    // If localStorage is unavailable, the in-memory termination screen still applies.
+  }
+}
+
+function persistTerminationToServer(token: string | null | undefined, reason: string) {
+  if (!token || typeof window === 'undefined') return;
+
+  const body = JSON.stringify({ token, reason });
+
+  try {
+    if (navigator.sendBeacon) {
+      const blob = new Blob([body], { type: 'application/json' });
+      navigator.sendBeacon('/api/participant-token/terminate', blob);
+      return;
+    }
+  } catch {
+    // Fall through to fetch.
+  }
+
+  fetch('/api/participant-token/terminate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+    keepalive: true
+  }).catch((error) => {
+    console.error('Failed to persist participant termination:', error);
+  });
+}
+
 const InterviewChat: React.FC = () => {
   const router = useRouter();
   const params = useParams();
@@ -74,10 +129,23 @@ const InterviewChat: React.FC = () => {
   }, [participantToken]);
 
   useEffect(() => {
-  if (tokenFromUrl && !participantToken) {
+  if (tokenFromUrl && participantToken !== tokenFromUrl) {
     setParticipantToken(tokenFromUrl);
   }
-}, [tokenFromUrl]);
+}, [participantToken, tokenFromUrl, setParticipantToken]);
+
+  useEffect(() => {
+    const token = tokenFromUrl || participantToken;
+    const storedTermination = readStoredTermination(token);
+
+    if (!storedTermination) return;
+
+    terminatedRef.current = true;
+    interviewActiveRef.current = false;
+    setTerminationReason(storedTermination);
+    setAiThinking(false);
+    completeInterview();
+  }, [participantToken, tokenFromUrl, setAiThinking, completeInterview]);
 
 
   const [input, setInput] = useState('');
@@ -119,6 +187,8 @@ const InterviewChat: React.FC = () => {
 
     terminatedRef.current = true;
     interviewActiveRef.current = false;
+    storeTermination(tokenFromUrl || participantToken, reason);
+    persistTerminationToServer(tokenFromUrl || participantToken, reason);
     setTerminationReason(reason);
     setAiThinking(false);
     completeInterview();
@@ -164,16 +234,41 @@ const InterviewChat: React.FC = () => {
       }
     };
 
+    const handleBlockedClipboardAction = (event: Event) => {
+      event.preventDefault();
+      terminateIfActive('The interview was terminated because copy, paste, or content transfer actions are not allowed.');
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      const blockedShortcut = (event.ctrlKey || event.metaKey) && ['a', 'c', 'v', 'x'].includes(key);
+
+      if (blockedShortcut) {
+        event.preventDefault();
+        terminateIfActive('The interview was terminated because keyboard copy/paste shortcuts are not allowed.');
+      }
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('copy', handleBlockedClipboardAction);
+    document.addEventListener('cut', handleBlockedClipboardAction);
+    document.addEventListener('paste', handleBlockedClipboardAction);
+    document.addEventListener('drop', handleBlockedClipboardAction);
+    document.addEventListener('keydown', handleKeyDown);
     window.addEventListener('blur', handleBlur);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('copy', handleBlockedClipboardAction);
+      document.removeEventListener('cut', handleBlockedClipboardAction);
+      document.removeEventListener('paste', handleBlockedClipboardAction);
+      document.removeEventListener('drop', handleBlockedClipboardAction);
+      document.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [viewMode, onboardingStep, isFinishing, terminationReason]);
+  }, [viewMode, onboardingStep, isFinishing, terminationReason, participantToken, tokenFromUrl]);
 
   // useEffect(() => {
 
@@ -262,6 +357,7 @@ const InterviewChat: React.FC = () => {
 
       if (!studyConfig) return;
       if (!participantToken) return;
+      if (readStoredTermination(tokenFromUrl || participantToken)) return;
       if (viewMode !== "participant") return;
       if (interviewHistory.length > 0) return; // ✅ prevents duplicate greeting
 
@@ -283,7 +379,7 @@ const InterviewChat: React.FC = () => {
     };
 
     startInterview();
-  }, [studyConfig, participantToken, viewMode]);
+  }, [studyConfig, participantToken, tokenFromUrl, viewMode]);
 
   const handleSend = async (textOverride?: string) => {
 

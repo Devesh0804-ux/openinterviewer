@@ -26,6 +26,7 @@ export default function ParticipantPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [terminationReason, setTerminationReason] = useState<string | null>(null);
 
   // Verify token and load study config on mount
   useEffect(() => {
@@ -43,6 +44,17 @@ export default function ParticipantPage() {
 
         if (!result.valid || !result.studyConfig) {
           setError('Invalid or expired link');
+          setLoading(false);
+          return;
+        }
+
+        if (result.terminated) {
+          setStudyConfig(result.studyConfig);
+          setParticipantToken(token);
+          setViewMode('participant');
+          setTerminationReason(
+            result.terminationReason || 'The interview was terminated because a restricted action was detected.'
+          );
           setLoading(false);
           return;
         }
@@ -87,6 +99,22 @@ export default function ParticipantPage() {
           <p className="text-stone-400 mb-6">{error}</p>
           <p className="text-stone-400 text-sm">
             Please check that you have the correct link or contact the researcher.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (terminationReason) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-stone-200 px-4 text-stone-950">
+        <div className="w-full max-w-md rounded-2xl border border-stone-300 bg-stone-50 p-6 text-center shadow-sm">
+          <h1 className="text-xl font-semibold">Interview Terminated</h1>
+          <p className="mt-3 text-sm leading-6 text-stone-700">
+            {terminationReason}
+          </p>
+          <p className="mt-3 text-xs text-stone-500">
+            Please contact the research team if you need a new participant link.
           </p>
         </div>
       </div>

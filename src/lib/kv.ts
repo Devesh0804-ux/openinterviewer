@@ -16,7 +16,13 @@ type LocalStore = {
   interviews: Record<string, StoredInterview>;
   studies: Record<string, StoredStudy>;
   studyInterviews: Record<string, string[]>;
-  participantTokens: Record<string, { studyId: string; studyConfig: StoredStudy['config']; expiresAt: number }>;
+  participantTokens: Record<string, {
+    studyId: string;
+    studyConfig: StoredStudy['config'];
+    expiresAt: number;
+    terminationReason?: string;
+    terminatedAt?: number;
+  }>;
 };
 
 const LOCAL_STORE_PATH = process.env.LOCAL_STORAGE_PATH || path.join(process.cwd(), '.data', 'local-store.json');
@@ -606,7 +612,12 @@ export async function saveParticipantToken(
   }
 }
 
-export async function getParticipantToken(token: string): Promise<{ studyId: string; studyConfig: StoredStudy['config'] } | null> {
+export async function getParticipantToken(token: string): Promise<{
+  studyId: string;
+  studyConfig: StoredStudy['config'];
+  terminationReason?: string;
+  terminatedAt?: number;
+} | null> {
   try {
     if (await shouldUseMongo()) {
       const tokenData = await ParticipantToken.findOne({
@@ -618,7 +629,9 @@ export async function getParticipantToken(token: string): Promise<{ studyId: str
 
       return {
         studyId: tokenData.studyId,
-        studyConfig: tokenData.studyConfig
+        studyConfig: tokenData.studyConfig,
+        terminationReason: tokenData.terminationReason,
+        terminatedAt: tokenData.terminatedAt ? toTimestamp(tokenData.terminatedAt) : undefined
       };
     }
 
@@ -634,10 +647,48 @@ export async function getParticipantToken(token: string): Promise<{ studyId: str
 
     return {
       studyId: tokenData.studyId,
-      studyConfig: tokenData.studyConfig
+      studyConfig: tokenData.studyConfig,
+      terminationReason: tokenData.terminationReason,
+      terminatedAt: tokenData.terminatedAt
     };
   } catch (error) {
     console.error('Error getting participant token:', error);
     return null;
+  }
+}
+
+export async function terminateParticipantToken(token: string, reason: string): Promise<boolean> {
+  try {
+    const cleanReason = reason.trim().slice(0, 500);
+
+    if (await shouldUseMongo()) {
+      const result = await ParticipantToken.updateOne(
+        {
+          token,
+          expiresAt: { $gt: new Date() },
+          terminatedAt: { $exists: false }
+        },
+        {
+          $set: {
+            terminationReason: cleanReason,
+            terminatedAt: new Date()
+          }
+        }
+      );
+
+      return result.modifiedCount > 0 || result.matchedCount > 0;
+    }
+
+    return await updateLocalStore((store) => {
+      const tokenData = store.participantTokens[token];
+      if (!tokenData || tokenData.expiresAt < Date.now()) return false;
+
+      tokenData.terminationReason = tokenData.terminationReason || cleanReason;
+      tokenData.terminatedAt = tokenData.terminatedAt || Date.now();
+      return true;
+    });
+  } catch (error) {
+    console.error('Error terminating participant token:', error);
+    return false;
   }
 }

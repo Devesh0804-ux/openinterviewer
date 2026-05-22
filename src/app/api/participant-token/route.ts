@@ -73,7 +73,10 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       valid: true,
-      studyConfig: tokenData.studyConfig
+      studyConfig: tokenData.studyConfig,
+      terminated: Boolean(tokenData.terminatedAt),
+      terminationReason: tokenData.terminationReason,
+      terminatedAt: tokenData.terminatedAt
     });
   } catch (error) {
     console.error('Token verification error:', error);
