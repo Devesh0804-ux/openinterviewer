@@ -7,12 +7,12 @@ export default function CompletePage() {
   const token = params.token;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-5">
-      <div className="w-full max-w-md text-center px-5 sm:px-6 py-8 bg-white shadow-md rounded-xl">
-        <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 mb-3">
+    <div className="min-h-screen bg-stone-900 flex items-center justify-center px-4 py-5">
+      <div className="w-full max-w-md text-center px-5 sm:px-6 py-8 bg-stone-800/50 border border-stone-700 shadow-md rounded-xl">
+        <h1 className="text-xl sm:text-2xl font-semibold text-white mb-3">
           Interview Completed 🎉
         </h1>
-        <p className="text-gray-600 text-sm">
+        <p className="text-stone-400 text-sm">
           Thank you for participating in this research interview.
         </p>
       </div>

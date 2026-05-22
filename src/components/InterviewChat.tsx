@@ -513,8 +513,8 @@ const InterviewChat: React.FC = () => {
 
   if (!studyConfig) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-600">No study configured.</p>
+      <div className="min-h-screen bg-stone-900 flex items-center justify-center">
+        <p className="text-stone-400">No study configured.</p>
       </div>
     );
   }
@@ -535,10 +535,10 @@ const totalQuestions = studyConfig?.coreQuestions?.length ?? 0;
 
   if (isFinishing) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-900">
+      <div className="min-h-screen flex items-center justify-center bg-stone-200 text-stone-950">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 size={36} className="animate-spin" />
-          <p className="text-sm text-gray-500">
+          <Loader2 size={36} className="animate-spin text-stone-700" />
+          <p className="text-sm text-stone-600">
             Generating your interview analysis...
           </p>
         </div>
@@ -548,13 +548,13 @@ const totalQuestions = studyConfig?.coreQuestions?.length ?? 0;
 
   if (terminationReason) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-100 px-4 text-slate-900">
-        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+      <div className="min-h-screen flex items-center justify-center bg-stone-200 px-4 text-stone-950">
+        <div className="w-full max-w-md rounded-2xl border border-stone-300 bg-stone-50 p-6 text-center shadow-sm">
           <h1 className="text-xl font-semibold">Interview Terminated</h1>
-          <p className="mt-3 text-sm leading-6 text-slate-600">
+          <p className="mt-3 text-sm leading-6 text-stone-700">
             {terminationReason}
           </p>
-          <p className="mt-3 text-xs text-slate-500">
+          <p className="mt-3 text-xs text-stone-500">
             Please contact the research team if you need a new participant link.
           </p>
         </div>
@@ -563,9 +563,9 @@ const totalQuestions = studyConfig?.coreQuestions?.length ?? 0;
   }
 
   return (
-    <div className="flex h-[100dvh] min-h-[100dvh] flex-col bg-slate-100">
+    <div className="flex h-[100dvh] min-h-[100dvh] flex-col bg-stone-200">
       {/* Header */}
-      <div className="min-h-16 flex items-center justify-between px-4 sm:px-6 py-3 border-b border-slate-200 bg-white/95 shadow-sm">
+      <div className="min-h-16 flex items-center justify-between px-4 sm:px-6 py-3 border-b border-stone-300 bg-stone-100/95 shadow-sm">
         <div className="flex items-center gap-3 min-w-0">
           {/* Logo */}
           <Image
@@ -576,8 +576,8 @@ const totalQuestions = studyConfig?.coreQuestions?.length ?? 0;
             className="w-9 h-9 sm:w-10 sm:h-10 object-contain flex-shrink-0"
           />
           <div className="min-w-0">
-            <h1 className="font-semibold text-sm sm:text-base text-slate-950 truncate">{studyConfig.name}</h1>
-            <p className="text-xs text-slate-500">{getProgressDisplay()}</p>
+            <h1 className="font-semibold text-sm sm:text-base text-stone-950 truncate">{studyConfig.name}</h1>
+            <p className="text-xs text-stone-600">{getProgressDisplay()}</p>
           </div>
         </div>
       </div>
@@ -592,12 +592,16 @@ const totalQuestions = studyConfig?.coreQuestions?.length ?? 0;
             <div
               className={`max-w-[92%] sm:max-w-[80%] rounded-2xl p-3 sm:p-4 ${
                 msg.role === 'user'
-                  ? 'bg-blue-100 border border-blue-200 text-slate-950 rounded-br-md'
-                  : 'bg-white border border-slate-200 text-slate-950 rounded-bl-md shadow-sm'
+                  ? 'bg-stone-800 border border-stone-700 text-stone-50 rounded-br-md'
+                  : 'bg-stone-50 border border-stone-300 text-stone-950 rounded-bl-md shadow-sm'
               }`}
             >
               <ReactMarkdown
-                className="text-sm sm:text-base leading-7 font-medium text-slate-950 [&_*]:text-slate-950"
+                className={`text-sm sm:text-base leading-7 font-medium ${
+                  msg.role === 'user'
+                    ? 'text-stone-50 [&_*]:text-stone-50'
+                    : 'text-stone-950 [&_*]:text-stone-950'
+                }`}
               >
                 {msg.content}
               </ReactMarkdown>
@@ -607,7 +611,7 @@ const totalQuestions = studyConfig?.coreQuestions?.length ?? 0;
 
         {isAiThinking && (
           <div className="flex justify-start">
-            <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4 text-slate-700">
+            <div className="bg-stone-50 border border-stone-300 shadow-sm rounded-2xl p-4 text-stone-700">
               <Loader2 size={16} className="animate-spin" />
               <span className="ml-2 text-sm">Thinking...</span>
             </div>
@@ -619,7 +623,7 @@ const totalQuestions = studyConfig?.coreQuestions?.length ?? 0;
 
       {/* Input */}
       {!isComplete && !isFinishing && (
-        <div className="p-3 sm:p-4 border-t border-slate-200 bg-white/95">
+        <div className="p-3 sm:p-4 border-t border-stone-300 bg-stone-100/95">
           <div className="flex gap-2 sm:gap-3">
             <input
               type="text"
@@ -628,12 +632,12 @@ const totalQuestions = studyConfig?.coreQuestions?.length ?? 0;
               onKeyDown={(e) => e.key === 'Enter' && !isAiThinking && handleSend()}
               placeholder="Type your response..."
               disabled={isAiThinking}
-              className="min-w-0 flex-1 px-3 sm:px-4 py-3 bg-white border border-slate-300 text-slate-950 rounded-xl placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              className="min-w-0 flex-1 px-3 sm:px-4 py-3 bg-stone-50 border border-stone-400 text-stone-950 rounded-xl placeholder:text-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-500 focus:border-stone-500"
             />
             <button
               onClick={() => handleSend()}
               disabled={!input.trim() || isAiThinking}
-              className="p-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl flex-shrink-0"
+              className="p-3 bg-stone-800 hover:bg-stone-700 text-white rounded-xl flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Send size={20} />
             </button>
