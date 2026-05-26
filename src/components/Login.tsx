@@ -1,15 +1,50 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Lock, Loader2, AlertCircle } from 'lucide-react';
 
 const Login: React.FC = () => {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const launchToken = searchParams.get('launchToken') || searchParams.get('bt_token');
+    if (!launchToken) return;
+
+    const authenticateLaunch = async () => {
+      setLaunching(true);
+      setError(null);
+
+      try {
+        const response = await fetch('/api/auth/launch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ launchToken })
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          setError(data.error || 'Could not authenticate BharatTech launch token.');
+          return;
+        }
+
+        router.replace('/dashboard?mode=admin');
+      } catch {
+        setError('Could not authenticate BharatTech launch token.');
+      } finally {
+        setLaunching(false);
+      }
+    };
+
+    authenticateLaunch();
+  }, [router, searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,7 +88,9 @@ const Login: React.FC = () => {
             </div>
             <h1 className="text-xl font-bold text-white">Researcher Login</h1>
             <p className="text-stone-400 text-sm mt-1">
-              Enter your admin password to access the dashboard
+              {launching
+                ? 'Signing you in from BharatTech...'
+                : 'Enter your admin password to access the dashboard'}
             </p>
           </div>
 
@@ -82,13 +119,13 @@ const Login: React.FC = () => {
 
             <button
               type="submit"
-              disabled={!password.trim() || loading}
+              disabled={!password.trim() || loading || launching}
               className="w-full py-3 bg-stone-600 hover:bg-stone-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
             >
-              {loading ? (
+              {loading || launching ? (
                 <>
                   <Loader2 size={18} className="animate-spin" />
-                  Logging in...
+                  {launching ? 'Signing in...' : 'Logging in...'}
                 </>
               ) : (
                 'Login'

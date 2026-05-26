@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { useStore } from '@/store';
 
 export default function DashboardLayout({
@@ -9,18 +8,13 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const router = useRouter();
-  const { viewMode } = useStore();
+  const { viewMode, setViewMode } = useStore();
 
   useEffect(() => {
     if (viewMode !== 'researcher' && viewMode !== 'admin') {
-      router.replace('/login');
+      setViewMode('researcher');
     }
-  }, [viewMode]);
-
-  if (viewMode !== 'researcher' && viewMode !== 'admin') {
-    return null;
-  }
+  }, [viewMode, setViewMode]);
 
   return <>{children}</>;
 }

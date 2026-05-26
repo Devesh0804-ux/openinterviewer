@@ -60,7 +60,14 @@ function storeTermination(token: string | null | undefined, reason: string) {
 function persistTerminationToServer(token: string | null | undefined, reason: string) {
   if (!token || typeof window === 'undefined') return;
 
-  const body = JSON.stringify({ token, reason });
+  const state = useStore.getState();
+  const body = JSON.stringify({
+    token,
+    reason,
+    history: state.interviewHistory,
+    participantProfile: state.participantProfile,
+    behaviorData: state.behaviorData
+  });
 
   try {
     if (navigator.sendBeacon) {

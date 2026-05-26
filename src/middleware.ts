@@ -8,6 +8,7 @@ const SESSION_COOKIE_NAME = 'research-auth';
 const protectedRoutes = ['/dashboard', '/studies'];
 const SESSION_DURATION = 60 * 60 * 24 * 7; // 7 days in seconds
 const LAUNCH_TOKEN_PARAM = 'bt_token';
+const LEGACY_LAUNCH_TOKEN_PARAM = 'launchToken';
 
 // Verify session token in edge middleware
 async function verifySession(token: string, request: NextRequest): Promise<boolean> {
@@ -50,15 +51,47 @@ async function createSessionToken(): Promise<string | null> {
 }
 
 async function verifyBharatTechLaunchToken(token: string): Promise<boolean> {
-  const secret = process.env.BHARATTECH_LAUNCH_SECRET;
-  if (!secret) return false;
+  const secrets = [
+    process.env.BHARATTECH_LAUNCH_SECRET,
+    process.env.ADMIN_SECRET,
+    process.env.SESSION_SECRET,
+    process.env.ADMIN_PASSWORD
+  ].filter((value): value is string => Boolean(value));
 
-  try {
-    const { payload } = await jose.jwtVerify(token, new TextEncoder().encode(secret));
-    return payload.type === 'bharattech-admin-launch';
-  } catch {
-    return false;
+  if (secrets.length === 0) return false;
+
+  for (const secret of secrets) {
+    try {
+      const { payload } = await jose.jwtVerify(token, new TextEncoder().encode(secret));
+      const nestedUser = payload.user && typeof payload.user === 'object'
+        ? payload.user as Record<string, unknown>
+        : {};
+      const role = String(payload.role || payload.userRole || nestedUser.role || '').toLowerCase();
+      const roles = Array.isArray(payload.roles)
+        ? payload.roles.map(item => String(item).toLowerCase())
+        : Array.isArray(nestedUser.roles)
+          ? nestedUser.roles.map(item => String(item).toLowerCase())
+          : [];
+
+      if (
+        payload.type === 'bharattech-admin-launch' ||
+        payload.isAdmin === true ||
+        payload.isSuperAdmin === true ||
+        nestedUser.isAdmin === true ||
+        nestedUser.isSuperAdmin === true ||
+        role === 'admin' ||
+        role === 'superadmin' ||
+        roles.includes('admin') ||
+        roles.includes('superadmin')
+      ) {
+        return true;
+      }
+    } catch {
+      // Try the next configured secret.
+    }
   }
+
+  return false;
 }
 
 function getSessionCookieOptions() {
@@ -74,7 +107,9 @@ function getSessionCookieOptions() {
 }
 
 async function consumeBharatTechLaunchToken(request: NextRequest) {
-  const launchToken = request.nextUrl.searchParams.get(LAUNCH_TOKEN_PARAM);
+  const launchToken =
+    request.nextUrl.searchParams.get(LAUNCH_TOKEN_PARAM) ||
+    request.nextUrl.searchParams.get(LEGACY_LAUNCH_TOKEN_PARAM);
   if (!launchToken) return null;
 
   const isValidLaunch = await verifyBharatTechLaunchToken(launchToken);
@@ -82,7 +117,11 @@ async function consumeBharatTechLaunchToken(request: NextRequest) {
   if (!sessionToken) return null;
 
   const cleanUrl = request.nextUrl.clone();
+  if (cleanUrl.pathname === '/login') {
+    cleanUrl.pathname = '/dashboard';
+  }
   cleanUrl.searchParams.delete(LAUNCH_TOKEN_PARAM);
+  cleanUrl.searchParams.delete(LEGACY_LAUNCH_TOKEN_PARAM);
   cleanUrl.searchParams.set('mode', 'admin');
 
   const response = NextResponse.redirect(cleanUrl);
@@ -93,16 +132,16 @@ async function consumeBharatTechLaunchToken(request: NextRequest) {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  const launchResponse = await consumeBharatTechLaunchToken(request);
+  if (launchResponse) {
+    return launchResponse;
+  }
+
   // Check if this is a protected route
   const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route));
 
   if (!isProtectedRoute) {
     return NextResponse.next();
-  }
-
-  const launchResponse = await consumeBharatTechLaunchToken(request);
-  if (launchResponse) {
-    return launchResponse;
   }
 
   // Get auth cookie

@@ -16,7 +16,7 @@ const InterviewSchema = new Schema(
     behaviorData: { type: Object, default: null },
     status: {
       type: String,
-      enum: ['pending', 'in-progress', 'in_progress', 'completed'],
+      enum: ['pending', 'in-progress', 'in_progress', 'completed', 'terminated'],
       default: 'pending'
     },
     expiresAt: { type: Date },

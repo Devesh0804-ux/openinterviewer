@@ -275,6 +275,20 @@ const Dashboard: React.FC = () => {
     interview.status || (interview.completedAt ? 'completed' : 'in_progress')
   );
 
+  const getStatusBadgeClass = (interview: StoredInterview) => {
+    const status = getStatus(interview);
+
+    if (status === 'terminated') {
+      return 'bg-red-900/40 text-red-300 border border-red-800/60';
+    }
+
+    if (status === 'completed') {
+      return 'bg-stone-700 text-stone-300';
+    }
+
+    return 'bg-stone-600 text-stone-200';
+  };
+
   return (
     <div className="min-h-screen bg-stone-900 px-4 py-5 sm:p-6 lg:p-8">
       <div className="w-full max-w-5xl mx-auto">
@@ -460,7 +474,7 @@ const Dashboard: React.FC = () => {
             </div>
             <h2 className="text-xl font-semibold text-white mb-2">No Interviews Yet</h2>
             <p className="text-stone-400 mb-6">
-              Completed interviews will appear here. Share participant links to start collecting data.
+              Interviews will appear here. Share participant links to start collecting data.
             </p>
             <div className="flex flex-col items-center gap-4">
               <button
@@ -499,11 +513,7 @@ const Dashboard: React.FC = () => {
                       <h3 className="font-semibold text-white break-words">
                         {interview.participantName || "Unknown Participant"}
                       </h3>
-                      <span className={`px-2 py-0.5 text-xs rounded-full ${
-                        getStatus(interview) === 'completed'
-                          ? 'bg-stone-700 text-stone-300'
-                          : 'bg-stone-600 text-stone-200'
-                      }`}>
+                      <span className={`px-2 py-0.5 text-xs rounded-full ${getStatusBadgeClass(interview)}`}>
                         {getStatus(interview).replace('_', ' ')}
                       </span>
                     </div>

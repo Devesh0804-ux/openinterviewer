@@ -217,7 +217,7 @@ export interface StoredInterview {
   behaviorData: BehaviorData;
   createdAt: number;
   completedAt: number;
-  status: 'in_progress' | 'completed';
+  status: 'in_progress' | 'completed' | 'terminated';
 }
 
 // ============================================
