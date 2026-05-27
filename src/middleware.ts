@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import * as jose from 'jose';
+import { verifyLaunchToken } from '@/lib/launchAuth';
 
 const SESSION_COOKIE_NAME = 'research-auth';
 
@@ -50,50 +51,6 @@ async function createSessionToken(): Promise<string | null> {
     .sign(new TextEncoder().encode(secret));
 }
 
-async function verifyBharatTechLaunchToken(token: string): Promise<boolean> {
-  const secrets = [
-    process.env.BHARATTECH_LAUNCH_SECRET,
-    process.env.ADMIN_SECRET,
-    process.env.SESSION_SECRET,
-    process.env.ADMIN_PASSWORD
-  ].filter((value): value is string => Boolean(value));
-
-  if (secrets.length === 0) return false;
-
-  for (const secret of secrets) {
-    try {
-      const { payload } = await jose.jwtVerify(token, new TextEncoder().encode(secret));
-      const nestedUser = payload.user && typeof payload.user === 'object'
-        ? payload.user as Record<string, unknown>
-        : {};
-      const role = String(payload.role || payload.userRole || nestedUser.role || '').toLowerCase();
-      const roles = Array.isArray(payload.roles)
-        ? payload.roles.map(item => String(item).toLowerCase())
-        : Array.isArray(nestedUser.roles)
-          ? nestedUser.roles.map(item => String(item).toLowerCase())
-          : [];
-
-      if (
-        payload.type === 'bharattech-admin-launch' ||
-        payload.isAdmin === true ||
-        payload.isSuperAdmin === true ||
-        nestedUser.isAdmin === true ||
-        nestedUser.isSuperAdmin === true ||
-        role === 'admin' ||
-        role === 'superadmin' ||
-        roles.includes('admin') ||
-        roles.includes('superadmin')
-      ) {
-        return true;
-      }
-    } catch {
-      // Try the next configured secret.
-    }
-  }
-
-  return false;
-}
-
 function getSessionCookieOptions() {
   const embeddedInBharatTech = process.env.OPENINTERVIEWER_EMBEDDED === 'true';
 
@@ -112,7 +69,7 @@ async function consumeBharatTechLaunchToken(request: NextRequest) {
     request.nextUrl.searchParams.get(LEGACY_LAUNCH_TOKEN_PARAM);
   if (!launchToken) return null;
 
-  const isValidLaunch = await verifyBharatTechLaunchToken(launchToken);
+  const isValidLaunch = await verifyLaunchToken(launchToken);
   const sessionToken = isValidLaunch ? await createSessionToken() : null;
   if (!sessionToken) return null;
 

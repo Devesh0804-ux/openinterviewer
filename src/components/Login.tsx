@@ -4,6 +4,34 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Lock, Loader2, AlertCircle } from 'lucide-react';
+import keycloak from '@/keycloak';
+
+let keycloakInitPromise: Promise<boolean> | null = null;
+
+function getKeycloakSession() {
+  if (keycloak.authenticated) {
+    return Promise.resolve(true);
+  }
+
+  if (keycloak.didInitialize) {
+    return Promise.resolve(Boolean(keycloak.authenticated));
+  }
+
+  if (!keycloakInitPromise) {
+    keycloakInitPromise = keycloak.init({
+      onLoad: 'check-sso',
+      silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`,
+      silentCheckSsoFallback: false,
+      checkLoginIframe: false,
+      pkceMethod: 'S256'
+    }).catch(error => {
+      keycloakInitPromise = null;
+      throw error;
+    });
+  }
+
+  return keycloakInitPromise;
+}
 
 const Login: React.FC = () => {
   const router = useRouter();
@@ -11,6 +39,7 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [launching, setLaunching] = useState(false);
+  const [checkingSso, setCheckingSso] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -44,6 +73,44 @@ const Login: React.FC = () => {
     };
 
     authenticateLaunch();
+  }, [router, searchParams]);
+
+  useEffect(() => {
+    const launchToken = searchParams.get('launchToken') || searchParams.get('bt_token');
+    if (launchToken) return;
+
+    let cancelled = false;
+
+    const authenticateExistingBharatTechSession = async () => {
+      setCheckingSso(true);
+
+      try {
+        const authenticated = await getKeycloakSession();
+        if (cancelled || !authenticated || !keycloak.token) return;
+
+        const response = await fetch('/api/auth/launch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ launchToken: keycloak.token })
+        });
+
+        if (cancelled || !response.ok) return;
+
+        router.replace('/dashboard?mode=admin');
+      } catch (error) {
+        console.warn('BharatTech SSO check failed:', error);
+      } finally {
+        if (!cancelled) {
+          setCheckingSso(false);
+        }
+      }
+    };
+
+    authenticateExistingBharatTechSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, [router, searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -90,6 +157,8 @@ const Login: React.FC = () => {
             <p className="text-stone-400 text-sm mt-1">
               {launching
                 ? 'Signing you in from BharatTech...'
+                : checkingSso
+                  ? 'Checking your BharatTech session...'
                 : 'Enter your admin password to access the dashboard'}
             </p>
           </div>
@@ -119,13 +188,13 @@ const Login: React.FC = () => {
 
             <button
               type="submit"
-              disabled={!password.trim() || loading || launching}
+              disabled={!password.trim() || loading || launching || checkingSso}
               className="w-full py-3 bg-stone-600 hover:bg-stone-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
             >
-              {loading || launching ? (
+              {loading || launching || checkingSso ? (
                 <>
                   <Loader2 size={18} className="animate-spin" />
-                  {launching ? 'Signing in...' : 'Logging in...'}
+                  {launching || checkingSso ? 'Signing in...' : 'Logging in...'}
                 </>
               ) : (
                 'Login'

@@ -4,59 +4,12 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import * as jose from 'jose';
 import {
   createSessionToken,
   getSessionCookieOptions,
   SESSION_COOKIE_NAME
 } from '@/lib/auth';
-
-function getLaunchSecrets() {
-  return [
-    process.env.BHARATTECH_LAUNCH_SECRET,
-    process.env.ADMIN_SECRET,
-    process.env.SESSION_SECRET,
-    process.env.ADMIN_PASSWORD
-  ].filter((value): value is string => Boolean(value));
-}
-
-function hasAdminRole(payload: jose.JWTPayload) {
-  const nestedUser = payload.user && typeof payload.user === 'object'
-    ? payload.user as Record<string, unknown>
-    : {};
-  const role = String(payload.role || payload.userRole || nestedUser.role || '').toLowerCase();
-  const roles = Array.isArray(payload.roles)
-    ? payload.roles.map(item => String(item).toLowerCase())
-    : Array.isArray(nestedUser.roles)
-      ? nestedUser.roles.map(item => String(item).toLowerCase())
-      : [];
-
-  return payload.type === 'bharattech-admin-launch' ||
-    payload.type === 'openinterviewer-launch' ||
-    payload.isAdmin === true ||
-    payload.isSuperAdmin === true ||
-    nestedUser.isAdmin === true ||
-    nestedUser.isSuperAdmin === true ||
-    role === 'admin' ||
-    role === 'superadmin' ||
-    roles.includes('admin') ||
-    roles.includes('superadmin');
-}
-
-async function verifyLaunchToken(token: string) {
-  for (const secret of getLaunchSecrets()) {
-    try {
-      const { payload } = await jose.jwtVerify(token, new TextEncoder().encode(secret));
-      if (hasAdminRole(payload)) {
-        return true;
-      }
-    } catch {
-      // Try the next configured secret.
-    }
-  }
-
-  return false;
-}
+import { verifyLaunchToken } from '@/lib/launchAuth';
 
 export async function POST(request: Request) {
   try {
